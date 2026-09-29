@@ -1,0 +1,11 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "TTC self-check",
+      "type": "shell",
+      "command": "uv run python ttc_diagonal_strike.py --self-check",
+      "problemMatcher": []
+    }
+  ]
+}
