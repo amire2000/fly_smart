@@ -17,6 +17,12 @@ uv run fly-smart
 For the complete command, YAML, output, and troubleshooting guide, see
 [`ttc_strike_usage.md`](../ttc_strike_usage.md).
 
+For the camera, bounding-box, TTC, pitch, and altitude-control data flow, see
+[How Fly Smart works](how-it-works.md).
+
+For the per-cycle image-to-motor control method, see
+[Image-to-control method flow](control-method-flow.md).
+
 ### Scenario YAML
 
 Initial conditions can be changed without editing Python. The sample
