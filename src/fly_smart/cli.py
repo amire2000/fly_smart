@@ -13,6 +13,7 @@ import pybullet as p
 from .config import SimulationConfig, StrikeConfig
 from .config_loader import load_yaml_config
 from .guidance import FlightPhase, GuidanceInput, StrikeGuidance
+from .godot_bridge import GodotBridge
 from .sensing import BarometerReading
 from .simulation import StrikeSimulation
 from .trajectory import TtcDescentPlanner
@@ -67,6 +68,7 @@ def self_check() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--headless", action="store_true")
+    parser.add_argument("--godot", action="store_true", help="Use Godot's FPV camera via Linux shared memory")
     parser.add_argument("--self-check", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=35.0)
     parser.add_argument("--output-root", type=Path, default=Path("outputs/ttc_runs"))
@@ -79,7 +81,7 @@ def main() -> None:
     parser.add_argument("--csv", type=Path)
     parser.add_argument("--no-csv", action="store_true")
     args = parser.parse_args()
-    client = p.connect(p.DIRECT if args.headless or args.self_check else p.GUI)
+    client = p.connect(p.DIRECT if args.headless or args.self_check or args.godot else p.GUI)
     try:
         if args.self_check:
             self_check()
@@ -99,7 +101,8 @@ def main() -> None:
             plot = args.plot or run_dir / "telemetry.png"
             csv = args.csv or run_dir / "telemetry.csv"
             summary = run_dir / "summary.json"
-            result = StrikeSimulation(config).run(not args.headless, args.max_seconds, None if args.no_video else video, None if args.no_plot else plot, None if args.no_csv else csv, summary)
+            bridge = GodotBridge() if args.godot else None
+            result = StrikeSimulation(config, godot=bridge).run(not args.headless and not args.godot, args.max_seconds, None if args.no_video else video, None if args.no_plot else plot, None if args.no_csv else csv, summary)
             print(f"run folder: {run_dir}")
             if args.headless:
                 assert result.success, f"Strike failed; impact speed was {result.impact_speed_mps:.1f} m/s"

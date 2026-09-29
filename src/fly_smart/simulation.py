@@ -13,6 +13,7 @@ from .common.flight_control import AttitudeController
 from .common.pybullet_sensors import read_imu
 from .common.pybullet_utils import create_world, draw_force_vectors
 from .forward_camera import add_environment_buildings, add_red_cube, forward_rgb
+from .godot_bridge import GodotBridge
 from .red_target_detector import detect_red_box
 
 from .config import SceneConfig, StrikeConfig
@@ -37,9 +38,10 @@ class StrikeResult:
 class StrikeSimulation:
     """Run one configured strike against the concrete PyBullet simulator."""
 
-    def __init__(self, config: StrikeConfig | None = None, scene: SceneConfig | None = None) -> None:
+    def __init__(self, config: StrikeConfig | None = None, scene: SceneConfig | None = None, godot: GodotBridge | None = None) -> None:
         self.config = config or StrikeConfig()
         self.scene = scene or self.config.simulation
+        self.godot = godot
 
     def run(self, gui: bool, max_seconds: float, video: Path | None, plot: Path | None, csv: Path | None = None, summary: Path | None = None) -> StrikeResult:
         config = self.config
@@ -53,6 +55,8 @@ class StrikeSimulation:
         p.resetBasePositionAndOrientation(drone, config.launch_position, (0, 0, 0, 1))
         cube = add_red_cube(self.scene.target_center, self.scene.target_size_m)
         add_environment_buildings()
+        if self.godot:
+            self.godot.open()
         barometer, tracker, guidance = Barometer(config), BboxTtcTracker(config), StrikeGuidance(config)
         vertical_imu = VerticalImu(config)
         vertical_estimator = VerticalEstimator(config, config.launch_position[2])
@@ -110,20 +114,32 @@ class StrikeSimulation:
 
                 frame = None
                 if step % (physics_hz // config.camera_hz) == 0:
-                    if writer:
-                        writer.write(cv2.cvtColor(environment_rgb(renderer, config), cv2.COLOR_RGB2BGR))
-                    frame, box = detect_red_box(
-                        forward_rgb(
-                            drone,
-                            renderer,
-                            look_down_degrees=config.camera_look_down_deg,
-                            width_px=config.camera_width_px,
-                            height_px=config.camera_height_px,
-                            fov_deg=config.camera_fov_deg,
+                    if self.godot:
+                        drone_position, drone_orientation = p.getBasePositionAndOrientation(drone)
+                        target_position, target_orientation = p.getBasePositionAndOrientation(cube)
+                        self.godot.publish_pose(drone_position, drone_orientation, target_position, target_orientation)
+                        godot_frame = self.godot.read_frame()
+                        if godot_frame is not None:
+                            frame, box = detect_red_box(godot_frame)
+                            if writer:
+                                writer.write(frame)
+                            target_visible = box is not None
+                            observation = tracker.update(box, now_s)
+                    else:
+                        if writer:
+                            writer.write(cv2.cvtColor(environment_rgb(renderer, config), cv2.COLOR_RGB2BGR))
+                        frame, box = detect_red_box(
+                            forward_rgb(
+                                drone,
+                                renderer,
+                                look_down_degrees=config.camera_look_down_deg,
+                                width_px=config.camera_width_px,
+                                height_px=config.camera_height_px,
+                                fov_deg=config.camera_fov_deg,
+                            )
                         )
-                    )
-                    target_visible = box is not None
-                    observation = tracker.update(box, now_s)
+                        target_visible = box is not None
+                        observation = tracker.update(box, now_s)
 
                 if step % control_steps == 0:
                     if stop_at_s is None:
@@ -220,6 +236,8 @@ class StrikeSimulation:
         finally:
             if writer:
                 writer.release()
+            if self.godot:
+                self.godot.close()
 
     @staticmethod
     def _video_writer(video: Path | None, config: StrikeConfig):

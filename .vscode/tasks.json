@@ -4,7 +4,7 @@
     {
       "label": "TTC self-check",
       "type": "shell",
-      "command": "uv run python ttc_diagonal_strike.py --self-check",
+      "command": "uv run fly-smart --self-check",
       "problemMatcher": []
     }
   ]

@@ -5,7 +5,7 @@
       "name": "TTC diagonal strike",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/ttc_diagonal_strike.py",
+      "module": "fly_smart.cli",
       "console": "integratedTerminal",
       "args": ["--config", "${workspaceFolder}/configs/scenario.yaml"]
     }

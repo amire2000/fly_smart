@@ -12,14 +12,16 @@ camera frames through Linux shared memory.
 
 ```bash
 uv sync
-uv run python ttc_diagonal_strike.py --config configs/scenario.yaml
+uv run fly-smart --config configs/scenario.yaml
 ```
 
 Useful checks:
 
 ```bash
-uv run python ttc_diagonal_strike.py --self-check
-uv run python ttc_diagonal_strike.py --headless --config configs/scenario.yaml
+uv run fly-smart --self-check
+uv run fly-smart --headless --config configs/scenario.yaml
+uv sync --extra dev
+uv run pytest -q
 ```
 
 Each run is written to `outputs/ttc_runs/<run-name>/` with settings, CSV
@@ -34,3 +36,16 @@ telemetry, summary, and plots.
 
 The course repository is the source of the baseline, but it is not imported
 at runtime and is not modified by this project.
+
+## Godot renderer branch
+
+On `godot-render`, start Godot first so it creates the shared-memory camera
+buffer, then start Python:
+
+```bash
+godot --path godot
+uv run fly-smart --godot --headless --config configs/scenario.yaml
+```
+
+The Python process still owns PyBullet physics and control. Godot only renders
+poses received over UDP and provides the camera image consumed by OpenCV.

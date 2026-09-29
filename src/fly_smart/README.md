@@ -11,7 +11,7 @@ Roll and yaw remain zero in this first exercise.
 Run it with:
 
 ```bash
-uv run python examples/07-optical-navigation/ttc_diagonal_strike.py
+uv run fly-smart
 ```
 
 For the complete command, YAML, output, and troubleshooting guide, see
@@ -40,7 +40,7 @@ runtime:
 Run it with:
 
 ```bash
-uv run python examples/07-optical-navigation/ttc_diagonal_strike.py \
+uv run fly-smart \
   --config examples/07-optical-navigation/ttc_strike/config/scenario.yaml
 ```
 
@@ -48,7 +48,7 @@ For the shorter 30 m test, use
 `examples/07-optical-navigation/ttc_strike_inputs/30m_diagonal_strike.yaml`:
 
 ```bash
-uv run python examples/07-optical-navigation/ttc_diagonal_strike.py \
+uv run fly-smart \
   --config examples/07-optical-navigation/ttc_strike_inputs/30m_diagonal_strike.yaml
 ```
 
@@ -116,7 +116,7 @@ flowchart LR
 Run the seven-inch scene with:
 
 ```bash
-uv run python examples/07-optical-navigation/ttc_diagonal_strike.py \
+uv run fly-smart \
   --config examples/07-optical-navigation/ttc_strike/config/seven_inch_trainer.yaml
 ```
 
