@@ -8,18 +8,20 @@ import time
 import cv2
 import pybullet as p
 
-from .common.drone_physics import PhysicsEngine, clamp
-from .common.flight_control import AttitudeController
-from .common.pybullet_sensors import read_imu
-from .common.pybullet_utils import create_world, draw_force_vectors
+from .drone_physics import PhysicsEngine, clamp
+from ..common.flight_control import AttitudeController
+from .pybullet_sensors import read_imu
+from .pybullet_utils import create_world, draw_force_vectors
 from .forward_camera import add_environment_buildings, add_red_cube, forward_rgb
-from .red_target_detector import detect_red_box
+from .godot_bridge import GodotBridge
+from ..red_target_detector import detect_red_box
 
 from .config import SceneConfig, StrikeConfig
-from .guidance import FlightPhase, GuidanceCommand, GuidanceInput, StrikeGuidance
-from .sensing import Barometer, BarometerReading, VerticalEstimator, VerticalImu
+from ..guidance import FlightPhase, GuidanceCommand, GuidanceInput, StrikeGuidance
+from ..sensing import BarometerReading, VerticalEstimator
+from .sensors import Barometer, VerticalImu
 from .telemetry import FlightLog, build_summary, make_plot, move_plot_window, refresh_plot, save_csv, save_plot, save_summary
-from .ttc import BboxTtcTracker, TtcObservation
+from ..ttc import BboxTtcTracker, TtcObservation
 from .views import annotate, environment_rgb
 
 @dataclass(frozen=True)
@@ -37,9 +39,11 @@ class StrikeResult:
 class StrikeSimulation:
     """Run one configured strike against the concrete PyBullet simulator."""
 
-    def __init__(self, config: StrikeConfig | None = None, scene: SceneConfig | None = None) -> None:
+    def __init__(self, config: StrikeConfig | None = None, scene: SceneConfig | None = None, godot: GodotBridge | None = None, scenario_name: str = "default") -> None:
         self.config = config or StrikeConfig()
         self.scene = scene or self.config.simulation
+        self.godot = godot
+        self.scenario_name = scenario_name
 
     def run(self, gui: bool, max_seconds: float, video: Path | None, plot: Path | None, csv: Path | None = None, summary: Path | None = None) -> StrikeResult:
         config = self.config
@@ -53,6 +57,8 @@ class StrikeSimulation:
         p.resetBasePositionAndOrientation(drone, config.launch_position, (0, 0, 0, 1))
         cube = add_red_cube(self.scene.target_center, self.scene.target_size_m)
         add_environment_buildings()
+        if self.godot:
+            self.godot.open()
         barometer, tracker, guidance = Barometer(config), BboxTtcTracker(config), StrikeGuidance(config)
         vertical_imu = VerticalImu(config)
         vertical_estimator = VerticalEstimator(config, config.launch_position[2])
@@ -76,7 +82,7 @@ class StrikeSimulation:
 
         def finish(success: bool, phase: str, now_s: float, abort_reason: str | None = None) -> StrikeResult:
             if plot:
-                save_plot(log, config, self.scene, plot)
+                save_plot(log, config, self.scene, plot, self.scenario_name)
             if csv:
                 save_csv(log, csv)
             if live_plot:
@@ -110,20 +116,32 @@ class StrikeSimulation:
 
                 frame = None
                 if step % (physics_hz // config.camera_hz) == 0:
-                    if writer:
-                        writer.write(cv2.cvtColor(environment_rgb(renderer, config), cv2.COLOR_RGB2BGR))
-                    frame, box = detect_red_box(
-                        forward_rgb(
-                            drone,
-                            renderer,
-                            look_down_degrees=config.camera_look_down_deg,
-                            width_px=config.camera_width_px,
-                            height_px=config.camera_height_px,
-                            fov_deg=config.camera_fov_deg,
+                    if self.godot:
+                        drone_position, drone_orientation = p.getBasePositionAndOrientation(drone)
+                        target_position, target_orientation = p.getBasePositionAndOrientation(cube)
+                        self.godot.publish_pose(drone_position, drone_orientation, target_position, target_orientation)
+                        godot_frame = self.godot.read_frame()
+                        if godot_frame is not None:
+                            frame, box = detect_red_box(godot_frame)
+                            if writer:
+                                writer.write(frame)
+                            target_visible = box is not None
+                            observation = tracker.update(box, now_s)
+                    else:
+                        if writer:
+                            writer.write(cv2.cvtColor(environment_rgb(renderer, config), cv2.COLOR_RGB2BGR))
+                        frame, box = detect_red_box(
+                            forward_rgb(
+                                drone,
+                                renderer,
+                                look_down_degrees=config.camera_look_down_deg,
+                                width_px=config.camera_width_px,
+                                height_px=config.camera_height_px,
+                                fov_deg=config.camera_fov_deg,
+                            )
                         )
-                    )
-                    target_visible = box is not None
-                    observation = tracker.update(box, now_s)
+                        target_visible = box is not None
+                        observation = tracker.update(box, now_s)
 
                 if step % control_steps == 0:
                     if stop_at_s is None:
@@ -220,6 +238,8 @@ class StrikeSimulation:
         finally:
             if writer:
                 writer.release()
+            if self.godot:
+                self.godot.close()
 
     @staticmethod
     def _video_writer(video: Path | None, config: StrikeConfig):
@@ -231,26 +251,29 @@ class StrikeSimulation:
             raise RuntimeError(f"Could not open video output: {video}")
         return writer
 
-    @staticmethod
-    def _live_plot(gui: bool, output: Path | None, config: StrikeConfig, scene: SceneConfig):
+    def _live_plot(self, gui: bool, output: Path | None, config: StrikeConfig, scene: SceneConfig):
+        """Create the optional live telemetry window for this named scenario."""
         if not gui or not output:
             return None
         import matplotlib.pyplot as plt
 
         plt.ion()
-        live_plot = make_plot(config, scene)
-        live_plot.figure.canvas.manager.set_window_title("Live TTC strike telemetry")
+        live_plot = make_plot(config, scene, self.scenario_name)
+        live_plot.figure.canvas.manager.set_window_title(f"TTC strike telemetry — {scene.drone_profile} / {self.scenario_name}")
         plt.show(block=False)
         move_plot_window(live_plot, config.plot_window_position_px)
         return live_plot
 
-    @staticmethod
-    def _print_summary(result: StrikeResult, summary: dict[str, object]) -> None:
-        print("\n--- TTC strike summary ---")
-        print(f"result: {'target contacted' if result.success else 'no valid contact'}")
+    def _print_summary(self, result: StrikeResult, summary: dict[str, object]) -> None:
+        """Print one colored, human-readable summary for the completed run."""
+        reset, cyan, green, red, yellow = "\033[0m", "\033[1;36m", "\033[1;32m", "\033[1;31m", "\033[1;33m"
+        status = f"{green}target contacted{reset}" if result.success else f"{red}no valid contact{reset}"
+        print(f"\n{cyan}--- TTC strike summary ---{reset}")
+        print(f"drone: {yellow}{self.scene.drone_profile}{reset}; scenario: {yellow}{self.scenario_name}{reset}")
+        print(f"result: {status}")
         print(f"final phase: {result.phase}; simulated time: {result.simulated_time_s:.1f} s")
         if result.phase == FlightPhase.ABORT.value and summary.get("abort_reason"):
-            print(f"\033[31mABORT: {summary['abort_reason']}\033[0m")
+            print(f"{red}ABORT: {summary['abort_reason']}{reset}")
         collision = summary["collision"]
         metrics = summary["flight_metrics"]
         print(f"starting pose: {summary['starting_pose']['position_m']}")

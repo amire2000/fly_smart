@@ -2,9 +2,15 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Run Fly Smart",
+      "type": "shell",
+      "command": "uv run fly-smart --config configs/scenario.yaml",
+      "problemMatcher": []
+    },
+    {
       "label": "TTC self-check",
       "type": "shell",
-      "command": "uv run python ttc_diagonal_strike.py --self-check",
+      "command": "uv run fly-smart --self-check",
       "problemMatcher": []
     }
   ]

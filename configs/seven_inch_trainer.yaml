@@ -4,7 +4,7 @@ simulation:
     profile: seven_inch_trainer         # Motor, propeller, aero values; URDF supplies mass/inertia.
   scene:
     launch_position: [-5.25, 0.0, 0.05]
-    target_center: [20.0, 0.0, 1.0]
+    target_center: [40.0, 0.0, 1.0]
     target_size_m: 2.0
   physical_forces:
     body_drag:
@@ -41,6 +41,8 @@ runtime:
     commit_box_height_fraction: 0.1
     alpha: 0.85                         # Trust in each measured bbox scale.
     beta: 0.05                          # Trust in the bbox-scale-rate correction.
+    ttc_unavailable_descent_velocity_mps: 1.5  # Start descent before TTC is reliable.
+    ttc_unavailable_pitch_boost_deg: 5.0  # Temporarily command up to 25 deg while bbox growth is invalid.
   sensors:
     barometer:
       sample_hz: 40.0                   # BMP388 barometer rate, independent of the camera.

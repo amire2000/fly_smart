@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from math import sqrt
 
-from .config import StrikeConfig
+from .mission import MissionConfig
 
 
 @dataclass(frozen=True)
@@ -19,7 +19,7 @@ class TtcObservation:
 class BboxTtcTracker:
     """Estimate TTC from bbox scale with an alpha-beta scale/rate filter."""
 
-    def __init__(self, config: StrikeConfig) -> None:
+    def __init__(self, config: MissionConfig) -> None:
         self.config = config
         self.reset()
 

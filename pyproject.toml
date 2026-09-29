@@ -11,8 +11,11 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
 [project.scripts]
-fly-smart = "fly_smart.cli:main"
+fly-smart = "fly_smart.simulation.cli:main"
 
 [build-system]
 requires = ["hatchling"]

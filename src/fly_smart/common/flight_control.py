@@ -2,7 +2,6 @@
 
 from math import pi
 
-from .drone_model import ImuReading
 from .pid import PID
 
 
@@ -25,7 +24,7 @@ class AttitudeController:
         for controller in (self.roll_pid, self.pitch_pid, self.yaw_pid):
             controller.reset()
 
-    def update(self, imu: ImuReading, yaw_target: float, roll_target: float = 0.0, pitch_target: float = 0.0) -> tuple[float, float, float]:
+    def update(self, imu: object, yaw_target: float, roll_target: float = 0.0, pitch_target: float = 0.0) -> tuple[float, float, float]:
         """Return roll, pitch, and yaw torque corrections from ideal IMU data."""
         roll, pitch, yaw = imu.roll_pitch_yaw_rad
         roll_rate, pitch_rate, yaw_rate = imu.angular_velocity_body_rad_s

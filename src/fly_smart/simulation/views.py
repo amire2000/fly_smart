@@ -7,8 +7,8 @@ import numpy as np
 import pybullet as p
 
 from .config import StrikeConfig
-from .guidance import GuidanceCommand
-from .ttc import TtcObservation
+from ..guidance import GuidanceCommand
+from ..ttc import TtcObservation
 
 
 def annotate(frame: np.ndarray, command: GuidanceCommand, observation: TtcObservation | None) -> np.ndarray:
