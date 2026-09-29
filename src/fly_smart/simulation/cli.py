@@ -102,7 +102,8 @@ def main() -> None:
             csv = args.csv or run_dir / "telemetry.csv"
             summary = run_dir / "summary.json"
             bridge = GodotBridge() if args.godot else None
-            result = StrikeSimulation(config, godot=bridge).run(not args.headless and not args.godot, args.max_seconds, None if args.no_video else video, None if args.no_plot else plot, None if args.no_csv else csv, summary)
+            scenario_name = args.config.stem if args.config else "default"
+            result = StrikeSimulation(config, godot=bridge, scenario_name=scenario_name).run(not args.headless and not args.godot, args.max_seconds, None if args.no_video else video, None if args.no_plot else plot, None if args.no_csv else csv, summary)
             print(f"run folder: {run_dir}")
             if args.headless:
                 assert result.success, f"Strike failed; impact speed was {result.impact_speed_mps:.1f} m/s"

@@ -1,5 +1,5 @@
 # Generic 1.5 kg seven-inch trainer. Mass and inertia live in the linked URDF.
-name: seven_inch_trainer
+name: 7inch
 urdf: seven_inch_trainer.urdf
 actuators:
   motor_kv_rpm_per_v: 900.9009009

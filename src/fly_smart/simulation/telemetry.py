@@ -108,10 +108,12 @@ class TelemetryPlot:
     collision_artists: list[object] = field(default_factory=list)
 
 
-def make_plot(config: StrikeConfig, scene: SceneConfig) -> TelemetryPlot:
+def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "default") -> TelemetryPlot:
+    """Create telemetry plots labelled with the selected drone and scenario."""
     import matplotlib.pyplot as plt
 
     figure, (velocity_axis, path_axis, trajectory_axis, guidance_axis, growth_axis, barometer_axis) = plt.subplots(6, 1, figsize=(10, 16))
+    figure.suptitle(f"TTC strike telemetry — {scene.drone_profile} / {scenario_name}")
     vx_line, = velocity_axis.plot([], [], label="vx measured", color="#2563eb")
     velocity_command_line, = velocity_axis.plot([], [], "--", label="vx target", color="#2563eb")
     vz_line, = velocity_axis.plot([], [], label="vz vertical", color="#dc2626")
@@ -156,7 +158,7 @@ def make_plot(config: StrikeConfig, scene: SceneConfig) -> TelemetryPlot:
     barometer_axis.set(xlabel="time (s)", ylabel="altitude (m)", title="BMP388 altitude EMA filter")
     barometer_axis.grid(alpha=0.25)
     barometer_axis.legend()
-    figure.tight_layout()
+    figure.tight_layout(rect=(0, 0, 1, 0.98))
     return TelemetryPlot(
         figure,
         velocity_axis,
@@ -254,11 +256,11 @@ def move_plot_window(plot: TelemetryPlot, position_px: tuple[int, int]) -> None:
         window.move(x, y)
 
 
-def save_plot(log: FlightLog, config: StrikeConfig, scene: SceneConfig, output: Path) -> None:
+def save_plot(log: FlightLog, config: StrikeConfig, scene: SceneConfig, output: Path, scenario_name: str = "default") -> None:
     import matplotlib.pyplot as plt
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    plot = make_plot(config, scene)
+    plot = make_plot(config, scene, scenario_name)
     refresh_plot(plot, log)
     plot.figure.savefig(output, dpi=140)
     plt.close(plot.figure)

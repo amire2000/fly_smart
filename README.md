@@ -27,6 +27,14 @@ uv run pytest -q
 Each run is written to `outputs/ttc_runs/<run-name>/` with settings, CSV
 telemetry, summary, and plots.
 
+## Run the seven-inch trainer
+
+```bash
+uv run fly-smart --config configs/seven_inch_trainer.yaml
+```
+
+For a non-interactive run, add `--headless`.
+
 ## Branches
 
 | Branch | Renderer | Camera source |
