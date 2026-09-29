@@ -8,19 +8,20 @@ import time
 import cv2
 import pybullet as p
 
-from .common.drone_physics import PhysicsEngine, clamp
-from .common.flight_control import AttitudeController
-from .common.pybullet_sensors import read_imu
-from .common.pybullet_utils import create_world, draw_force_vectors
+from .drone_physics import PhysicsEngine, clamp
+from ..common.flight_control import AttitudeController
+from .pybullet_sensors import read_imu
+from .pybullet_utils import create_world, draw_force_vectors
 from .forward_camera import add_environment_buildings, add_red_cube, forward_rgb
 from .godot_bridge import GodotBridge
-from .red_target_detector import detect_red_box
+from ..red_target_detector import detect_red_box
 
 from .config import SceneConfig, StrikeConfig
-from .guidance import FlightPhase, GuidanceCommand, GuidanceInput, StrikeGuidance
-from .sensing import Barometer, BarometerReading, VerticalEstimator, VerticalImu
+from ..guidance import FlightPhase, GuidanceCommand, GuidanceInput, StrikeGuidance
+from ..sensing import BarometerReading, VerticalEstimator
+from .sensors import Barometer, VerticalImu
 from .telemetry import FlightLog, build_summary, make_plot, move_plot_window, refresh_plot, save_csv, save_plot, save_summary
-from .ttc import BboxTtcTracker, TtcObservation
+from ..ttc import BboxTtcTracker, TtcObservation
 from .views import annotate, environment_rgb
 
 @dataclass(frozen=True)

@@ -128,22 +128,18 @@ them before comparing flight results.
 ## Module design
 
 ```text
-ttc_strike/
-├── config.py       SimulationConfig + RuntimeConfig + StrikeConfig
-├── config_loader.py grouped YAML parser and validation
-├── config/          bundled default, seven-inch, and template YAML files
-├── sensing.py      Barometer: altitude and vertical velocity
+fly_smart/
+├── mission.py      production mission and controller configuration
+├── sensing.py      sensor readings and vertical state fusion
 ├── ttc.py          BboxTtcTracker: bbox scale growth to TTC
 ├── trajectory.py   TtcDescentPlanner: TTC + altitude to vx/vz target
 ├── guidance.py     StrikeGuidance: takeoff, track, commit, abort
-├── telemetry.py    FlightLog: live graph and final PNG
-├── views.py        camera overlays and wide environment rendering
-├── simulation.py   StrikeSimulation: the PyBullet adapter
-└── cli.py          command-line options and self-check
+├── red_target_detector.py RGB frame to target bounding box
+└── simulation/     PyBullet, Godot, synthetic sensors, telemetry, and CLI
 ```
 
-Only `simulation.py` knows PyBullet/OpenCV. The calculation modules receive
-plain typed data, which keeps TTC and trajectory math easy to test.
+Only `simulation/` knows PyBullet and the synthetic world. The core modules
+receive plain typed data, which keeps TTC and trajectory math easy to test.
 
 ## Class relationships
 

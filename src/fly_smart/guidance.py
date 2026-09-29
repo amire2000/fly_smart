@@ -6,7 +6,7 @@ from math import cos
 
 from .common.pid import PID
 
-from .config import StrikeConfig
+from .mission import MissionConfig
 from .sensing import BarometerReading
 from .trajectory import TrajectoryCommand, TtcDescentPlanner
 from .ttc import TtcObservation
@@ -63,7 +63,7 @@ class StrikeGuidance:
     continues the barometer-driven vertical PID without camera measurements.
     """
 
-    def __init__(self, config: StrikeConfig) -> None:
+    def __init__(self, config: MissionConfig) -> None:
         self.config = config
         self.phase = FlightPhase.TAKEOFF
         self.trajectory = TtcDescentPlanner(config)

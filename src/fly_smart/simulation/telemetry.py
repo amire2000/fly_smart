@@ -6,12 +6,12 @@ import json
 from math import degrees, isfinite
 from pathlib import Path
 
-from .common.drone_model import PhysicsStep
+from .drone_model import PhysicsStep
 
 from .config import SceneConfig, StrikeConfig
-from .guidance import GuidanceCommand
-from .sensing import BarometerReading
-from .ttc import TtcObservation
+from ..guidance import GuidanceCommand
+from ..sensing import BarometerReading
+from ..ttc import TtcObservation
 
 
 @dataclass

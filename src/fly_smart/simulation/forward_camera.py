@@ -9,12 +9,12 @@ import cv2
 import numpy as np
 import pybullet as p
 
-from .common.drone_model import DEFAULT_DRONE_MODEL, DEFAULT_PHYSICS_SETTINGS
-from .common.drone_physics import PhysicsEngine, clamp
-from .common.flight_control import AttitudeController
-from .common.pybullet_sensors import read_imu, read_state
-from .common.pybullet_utils import create_world, draw_force_vectors
-from .common.pid import PID
+from .drone_model import DEFAULT_DRONE_MODEL, DEFAULT_PHYSICS_SETTINGS
+from .drone_physics import PhysicsEngine, clamp
+from ..common.flight_control import AttitudeController
+from .pybullet_sensors import read_imu, read_state
+from .pybullet_utils import create_world, draw_force_vectors
+from ..common.pid import PID
 
 TARGET_ALTITUDE = 3.0
 CAMERA_WIDTH, CAMERA_HEIGHT = 640, 480
