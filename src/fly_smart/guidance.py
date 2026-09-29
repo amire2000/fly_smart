@@ -41,6 +41,7 @@ class GuidanceCommand:
     trajectory: TrajectoryCommand | None
     reset_ttc: bool = False
     commit_expired: bool = False
+    vertical_velocity_target_mps: float | None = None
 
 
 class StrikeGuidance:
@@ -150,6 +151,7 @@ class StrikeGuidance:
                 self.last_command.pitch_target_rad,
                 self.last_command.trajectory,
                 commit_expired=data.now_s > (self.commit_deadline_s or data.now_s),
+                vertical_velocity_target_mps=desired_vz,
             )
             self.last_command = command
             return command
@@ -175,6 +177,8 @@ class StrikeGuidance:
             0.0,
         )
         pitch = max(0.0, min(self.config.max_pitch_rad, pitch_correction))
+        if data.target_visible and data.observation is None:
+            pitch = min(self.config.max_pitch_rad + self.config.ttc_unavailable_pitch_boost_rad, pitch + self.config.ttc_unavailable_pitch_boost_rad)
         corrected_vz = self._corrected_vertical_velocity(trajectory, data.barometer.altitude_m)
         if data.observation is not None:
             self.last_tracking_descent_velocity_mps = corrected_vz
@@ -186,7 +190,7 @@ class StrikeGuidance:
         # Compensate for the attitude the vehicle actually has, not only the
         # target attitude. This preserves vertical lift during pitch lag.
         thrust = vertical_force / max(cos(data.measured_pitch_rad), 0.5)
-        command = GuidanceCommand(self.phase, thrust, pitch, trajectory)
+        command = GuidanceCommand(self.phase, thrust, pitch, trajectory, vertical_velocity_target_mps=corrected_vz)
         self.last_command = command
         return command
 

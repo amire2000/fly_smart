@@ -27,8 +27,8 @@ class TtcDescentPlanner:
         """
         altitude_error_m = self.config.impact_altitude_m - current_altitude_m
         if ttc_s is None:
-            # Move forward to create bbox growth while holding takeoff height.
-            vertical_velocity_mps = 0.0
+            # Start shedding takeoff overshoot before visual TTC is reliable.
+            vertical_velocity_mps = -self.config.ttc_unavailable_descent_velocity_mps
             altitude_target_m = self.config.takeoff_altitude_m
         else:
             time_to_go_s = max(ttc_s, self.config.min_ttc_s)

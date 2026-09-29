@@ -177,7 +177,11 @@ def load_yaml_config(path: Path) -> StrikeConfig:
         runtime = replace(runtime, ttc_alpha=_unit_interval(ttc["alpha"], "runtime.ttc.alpha"))
     if "beta" in ttc:
         runtime = replace(runtime, ttc_beta=_unit_interval(ttc["beta"], "runtime.ttc.beta"))
-    runtime = _merge(runtime, {name: value for name, value in ttc.items() if name not in {"alpha", "beta"}}, ("min_ttc_s", "commit_box_height_fraction", "min_growth_px_per_s"), "runtime.ttc")
+    if "ttc_unavailable_descent_velocity_mps" in ttc:
+        runtime = replace(runtime, ttc_unavailable_descent_velocity_mps=_non_negative(ttc["ttc_unavailable_descent_velocity_mps"], "runtime.ttc.ttc_unavailable_descent_velocity_mps"))
+    if "ttc_unavailable_pitch_boost_deg" in ttc:
+        runtime = replace(runtime, ttc_unavailable_pitch_boost_deg=_non_negative(ttc["ttc_unavailable_pitch_boost_deg"], "runtime.ttc.ttc_unavailable_pitch_boost_deg"))
+    runtime = _merge(runtime, {name: value for name, value in ttc.items() if name not in {"alpha", "beta", "ttc_unavailable_descent_velocity_mps", "ttc_unavailable_pitch_boost_deg"}}, ("min_ttc_s", "commit_box_height_fraction", "min_growth_px_per_s"), "runtime.ttc")
     if "sample_hz" in barometer:
         runtime = replace(runtime, barometer_sample_hz=_positive(barometer["sample_hz"], "runtime.sensors.barometer.sample_hz"))
     if "altitude_noise_sigma_m" in barometer:

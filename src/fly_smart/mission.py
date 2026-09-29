@@ -20,6 +20,7 @@ class MissionConfig:
     impact_altitude_m: float = 1.0
     forward_speed_mps: float = 13.0
     nominal_pitch_deg: float = 20.0
+    max_pitch_deg: float = 20.0
     max_descent_velocity_mps: float = 4.5
     max_climb_velocity_mps: float = 3.0
     min_ttc_s: float = 0.2
@@ -27,6 +28,8 @@ class MissionConfig:
     ttc_alpha: float = 0.85
     ttc_beta: float = 0.05
     min_growth_px_per_s: float = 0.01
+    ttc_unavailable_descent_velocity_mps: float = 1.5
+    ttc_unavailable_pitch_boost_deg: float = 0.0
     vertical_estimator_alpha: float = 0.08
     vertical_estimator_beta: float = 0.005
     altitude_pid_gains: tuple[float, float, float] = (1.8, 0.05, 2.2)
@@ -51,6 +54,10 @@ class MissionConfig:
     @property
     def max_pitch_rad(self) -> float:
         return radians(self.max_pitch_deg)
+
+    @property
+    def ttc_unavailable_pitch_boost_rad(self) -> float:
+        return radians(self.ttc_unavailable_pitch_boost_deg)
 
     @property
     def commit_box_height_px(self) -> float:

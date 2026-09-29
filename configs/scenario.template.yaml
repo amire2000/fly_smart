@@ -71,6 +71,8 @@ runtime:
     alpha: 0.85                           # Trust in the latest bbox-scale measurement [0..1].
     beta: 0.05                            # Trust in bbox-scale-rate correction [0..1].
     min_growth_px_per_s: 0.01             # Minimum accepted approach growth [px/s].
+    ttc_unavailable_descent_velocity_mps: 1.5  # Initial descent magnitude before TTC is valid; zero disables it.
+    ttc_unavailable_pitch_boost_deg: 0.0  # Extra pitch while bbox is visible but TTC is invalid; zero disables it.
   sensors:
     barometer:
       sample_hz: 40.0                     # BMP388 altitude update rate [Hz]; independent of the camera.

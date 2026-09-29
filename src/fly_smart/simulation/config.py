@@ -93,6 +93,8 @@ class RuntimeConfig:
     ttc_alpha: float = 0.85
     ttc_beta: float = 0.05
     min_growth_px_per_s: float = 0.01
+    ttc_unavailable_descent_velocity_mps: float = 1.5
+    ttc_unavailable_pitch_boost_deg: float = 0.0
     barometer_sample_hz: float = 40.0
     barometer_noise_sigma_m: float = 0.10
     barometer_bias_m: float = 0.0
@@ -144,6 +146,10 @@ class StrikeConfig:
     @property
     def max_pitch_rad(self) -> float:
         return radians(self.runtime.max_pitch_deg)
+
+    @property
+    def ttc_unavailable_pitch_boost_rad(self) -> float:
+        return radians(self.runtime.ttc_unavailable_pitch_boost_deg)
 
     @property
     def commit_box_height_px(self) -> float:

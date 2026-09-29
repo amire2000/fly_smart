@@ -43,7 +43,7 @@ def self_check() -> None:
     trajectory = planner.command(1.0, config.takeoff_altitude_m)
     assert trajectory.forward_velocity_mps == config.forward_speed_mps
     assert trajectory.vertical_velocity_mps == -config.max_descent_velocity_mps
-    assert planner.command(None, config.takeoff_altitude_m).vertical_velocity_mps == 0.0
+    assert planner.command(None, config.takeoff_altitude_m).vertical_velocity_mps == -config.ttc_unavailable_descent_velocity_mps
     assert planner.command(None, config.takeoff_altitude_m).altitude_target_m == config.takeoff_altitude_m
 
     guidance = StrikeGuidance(config)
@@ -56,7 +56,7 @@ def self_check() -> None:
     tracked = guidance.update(GuidanceInput(0.1, reading, observation, observation, True, True))
     assert tracked.pitch_target_rad > 0.0 and tracked.thrust_n > 0.0
     hold = guidance.update(GuidanceInput(0.2, reading, None, observation, True, True))
-    assert hold.pitch_target_rad == config.nominal_pitch_rad and hold.trajectory.vertical_velocity_mps == 0.0
+    assert hold.pitch_target_rad == config.nominal_pitch_rad and hold.trajectory.vertical_velocity_mps == -config.ttc_unavailable_descent_velocity_mps
     committed = guidance.update(GuidanceInput(0.3, reading, None, observation, False, True))
     assert committed.phase == FlightPhase.COMMIT
     assert committed.pitch_target_rad == hold.pitch_target_rad
