@@ -55,5 +55,6 @@ godot --path godot
 uv run fly-smart --godot --headless --config configs/scenario.yaml
 ```
 
-The Python process still owns PyBullet physics and control. Godot only renders
-poses received over UDP and provides the camera image consumed by OpenCV.
+The Python process owns PyBullet physics and control. Godot renders poses
+received over UDP, provides the camera image consumed by OpenCV, and sends
+target or building collision events back for `--godot` mission outcomes.

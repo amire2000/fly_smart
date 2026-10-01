@@ -8,24 +8,34 @@ const FPS := 15.0
 const HEADER_BYTES := 32
 const FRAME_BYTES := WIDTH * HEIGHT * 3  # tightly packed RGB8
 const POSE_PORT := 9100
+const COLLISION_PORT := 9101
+const FPV_MOUNT := Transform3D(Basis(Vector3.UP, -PI / 2.0), Vector3(0.35, 0.05, 0.0))
+const SPECTATOR_TURN_SPEED := 0.01
 
 var _drone: Node3D
-var _spinning_body: Node3D
+var _target: Node3D
 var _fpv_viewport: SubViewport
 var _fpv_camera: Camera3D
+var _display_camera: Camera3D
+var _collision_sensor: Area3D
 var _shm: FileAccess
 var _pose_socket := PacketPeerUDP.new()
+var _collision_socket := PacketPeerUDP.new()
 var _active_slot := 0
 var _sequence := 0
-var _time := 0.0
 var _latest_pose: Dictionary = {}
+var _collision_reported := false
+var _spectator_yaw := -PI / 2.0
+var _spectator_pitch := 0.35
+var _spectator_distance := 8.0
 
 
 func _ready() -> void:
 	_build_world()
 	_build_drone()
-	_build_spinning_body()
+	_build_target()
 	_build_cameras()
+	_collision_socket.connect_to_host("127.0.0.1", COLLISION_PORT)
 	var bind_error := _pose_socket.bind(POSE_PORT, "127.0.0.1")
 	if bind_error != OK:
 		push_error("Cannot listen for PyBullet poses on UDP %d: %s" % [POSE_PORT, bind_error])
@@ -37,17 +47,34 @@ func _ready() -> void:
 		print("FPV shared memory ready: ", SHM_PATH)
 
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	_receive_latest_pose()
-	_time += delta
-	# PyBullet is authoritative. Keep the demo motion only when no sender is
-	# connected, so the Godot project can still be previewed by itself.
-	if _latest_pose.is_empty():
-		_drone.position = Vector3(sin(_time * 0.35) * 2.5, 2.7 + sin(_time) * 0.25, 4.0 - _time * 0.45)
-		_drone.rotation = Vector3(sin(_time * 0.7) * 0.08, sin(_time * 0.25) * 0.12, sin(_time * 0.9) * 0.1)
-	_fpv_camera.global_transform = _drone.global_transform * Transform3D(Basis.IDENTITY, Vector3(0.0, 0.05, -0.35))
-	if _drone.position.z < -18.0:
-		_time = 0.0
+	var camera_transform := _drone.global_transform * FPV_MOUNT
+	_fpv_camera.global_transform = camera_transform
+	_update_spectator_camera()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_RIGHT:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if event.pressed else Input.MOUSE_MODE_VISIBLE
+		elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_spectator_distance = maxf(2.0, _spectator_distance - 2.0)
+		elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_spectator_distance = minf(100.0, _spectator_distance + 2.0)
+	elif event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		_spectator_yaw -= event.relative.x * SPECTATOR_TURN_SPEED
+		_spectator_pitch = clampf(_spectator_pitch - event.relative.y * SPECTATOR_TURN_SPEED, -1.4, 1.4)
+
+
+func _update_spectator_camera() -> void:
+	var direction := Vector3(
+		sin(_spectator_yaw) * cos(_spectator_pitch),
+		sin(_spectator_pitch),
+		cos(_spectator_yaw) * cos(_spectator_pitch),
+	)
+	_display_camera.global_position = _drone.global_position + direction * _spectator_distance
+	_display_camera.look_at(_drone.global_position)
 
 
 func _build_world() -> void:
@@ -65,36 +92,43 @@ func _build_world() -> void:
 	sun.light_energy = 1.5
 	add_child(sun)
 
-	_add_box(self, Vector3(0, -0.15, -8), Vector3(80, 0.3, 80), Color(0.34, 0.53, 0.29))
-	_add_box(self, Vector3(0, 0.02, -9), Vector3(3.2, 0.05, 42), Color(0.22, 0.24, 0.26))
-	for z in range(-28, 12, 5):
-		_add_box(self, Vector3(0, 0.06, z), Vector3(0.08, 0.01, 2.0), Color(0.95, 0.86, 0.46))
+	_add_box(self, Vector3(10, -0.15, 0), Vector3(80, 0.3, 80), Color(0.34, 0.53, 0.29))
+	_add_box(self, Vector3(10, 0.02, 0), Vector3(80, 0.05, 3.2), Color(0.22, 0.24, 0.26))
+	for x in range(-25, 50, 5):
+		_add_box(self, Vector3(x, 0.06, 0), Vector3(2.0, 0.01, 0.08), Color(0.95, 0.86, 0.46))
 	for i in range(9):
-		var z := 7.0 - float(i) * 5.0
+		var x := -20.0 + float(i) * 8.0
 		var height := 1.2 + float(i % 3) * 0.55
-		_add_box(self, Vector3(-6, height * 0.5, z), Vector3(2.1, height, 2.1), Color(0.74, 0.36, 0.21))
-		_add_box(self, Vector3(6, height * 0.5, z - 2), Vector3(2.1, height, 2.1), Color(0.72, 0.64, 0.42))
+		_add_obstacle(self, Vector3(x, height * 0.5, -6), Vector3(2.1, height, 2.1), Color(0.16, 0.38, 0.72))
+		_add_obstacle(self, Vector3(x - 2, height * 0.5, 6), Vector3(2.1, height, 2.1), Color(0.12, 0.28, 0.58))
 
 
 func _build_drone() -> void:
 	_drone = Node3D.new()
 	_drone.name = "Drone"
+	_drone.position = Vector3(-5.25, 0.05, 0.0)
 	add_child(_drone)
-	_add_box(_drone, Vector3.ZERO, Vector3(0.42, 0.16, 0.55), Color(0.08, 0.10, 0.13))
-	_add_box(_drone, Vector3.ZERO, Vector3(0.9, 0.07, 0.08), Color(0.13, 0.15, 0.18))
+	_add_box(_drone, Vector3.ZERO, Vector3(0.42, 0.16, 0.55), Color(0.82, 0.86, 0.9))
 	for x in [-0.42, 0.42]:
-		_add_box(_drone, Vector3(x, 0.02, 0), Vector3(0.22, 0.05, 0.22), Color(0.94, 0.40, 0.12))
+		for z in [-0.42, 0.42]:
+			_add_box(_drone, Vector3(x, 0.02, z), Vector3(0.22, 0.05, 0.22), Color(0.08, 0.35, 0.92))
+	_collision_sensor = Area3D.new()
+	var drone_shape := CollisionShape3D.new()
+	var drone_box := BoxShape3D.new()
+	drone_box.size = Vector3(0.9, 0.25, 0.9)
+	drone_shape.shape = drone_box
+	_collision_sensor.add_child(drone_shape)
+	_collision_sensor.body_entered.connect(_on_drone_body_entered)
+	_drone.add_child(_collision_sensor)
 
 
-func _build_spinning_body() -> void:
-	_spinning_body = Node3D.new()
-	_spinning_body.name = "PyBulletBody"
-	_spinning_body.position = Vector3(0, 1.8, -10)
-	add_child(_spinning_body)
-	_add_box(_spinning_body, Vector3.ZERO, Vector3(1.3, 0.6, 0.8), Color(0.92, 0.23, 0.16))
-	# The offset colored panels make attitude changes obvious in the FPV image.
-	_add_box(_spinning_body, Vector3(0, 0.31, 0), Vector3(1.1, 0.03, 0.5), Color(0.1, 0.75, 0.98))
-	_add_box(_spinning_body, Vector3(0.25, 0, 0.41), Vector3(0.3, 0.4, 0.03), Color(0.96, 0.9, 0.2))
+func _build_target() -> void:
+	_target = Node3D.new()
+	_target.name = "PyBulletTarget"
+	_target.position = Vector3(24.75, 1.0, 0.0)
+	add_child(_target)
+	_add_box(_target, Vector3.ZERO, Vector3(2, 2, 2), Color(0.9, 0.05, 0.05))
+	_add_collision_body(_target, Vector3.ZERO, Vector3(2, 2, 2), "target")
 
 
 func _receive_latest_pose() -> void:
@@ -105,8 +139,10 @@ func _receive_latest_pose() -> void:
 		if not value is Dictionary:
 			continue
 		_latest_pose = value
+		if value.get("reset", false):
+			_collision_reported = false
 		_apply_pose(value.get("drone"), _drone)
-		_apply_pose(value.get("target"), _spinning_body)
+		_apply_pose(value.get("target"), _target)
 
 
 func _apply_pose(raw_pose: Variant, node: Node3D) -> void:
@@ -128,12 +164,10 @@ func _apply_pose(raw_pose: Variant, node: Node3D) -> void:
 
 
 func _build_cameras() -> void:
-	var overview := Camera3D.new()
-	overview.name = "OverviewCamera"
-	add_child(overview)
-	overview.position = Vector3(12, 10, 16)
-	overview.look_at(Vector3(0, 0, -9))
-	overview.current = true
+	_display_camera = Camera3D.new()
+	_display_camera.name = "DroneCamera"
+	add_child(_display_camera)
+	_display_camera.current = true
 
 	_fpv_viewport = SubViewport.new()
 	_fpv_viewport.name = "FPVViewport"
@@ -153,6 +187,16 @@ func _build_cameras() -> void:
 
 	var overlay := CanvasLayer.new()
 	add_child(overlay)
+	var preview_frame := Panel.new()
+	preview_frame.name = "FPVPreviewFrame"
+	preview_frame.position = Vector2(6, 6)
+	preview_frame.size = Vector2(488, 278)
+	var preview_style := StyleBoxFlat.new()
+	preview_style.bg_color = Color(0, 0, 0, 0)
+	preview_style.border_color = Color(0.08, 0.55, 0.95)
+	preview_style.set_border_width_all(2)
+	preview_frame.add_theme_stylebox_override("panel", preview_style)
+	overlay.add_child(preview_frame)
 	var preview := TextureRect.new()
 	preview.name = "FPVPreview"
 	preview.position = Vector2(10, 10)
@@ -160,6 +204,17 @@ func _build_cameras() -> void:
 	preview.texture = _fpv_viewport.get_texture()
 	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	overlay.add_child(preview)
+
+	var axes := Label.new()
+	axes.name = "WorldAxes"
+	axes.text = "Y ↑\nZ ⊙   X →"
+	axes.add_theme_font_size_override("font_size", 20)
+	axes.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	axes.offset_left = -130
+	axes.offset_top = 16
+	axes.offset_right = -16
+	axes.offset_bottom = 80
+	overlay.add_child(axes)
 
 
 func _add_box(parent: Node, pos: Vector3, size: Vector3, color: Color) -> void:
@@ -172,6 +227,31 @@ func _add_box(parent: Node, pos: Vector3, size: Vector3, color: Color) -> void:
 	instance.mesh = mesh
 	instance.position = pos
 	parent.add_child(instance)
+
+
+func _add_obstacle(parent: Node, pos: Vector3, size: Vector3, color: Color) -> void:
+	_add_box(parent, pos, size, color)
+	_add_collision_body(parent, pos, size, "obstacle")
+
+
+func _add_collision_body(parent: Node, pos: Vector3, size: Vector3, kind: String) -> void:
+	var body := StaticBody3D.new()
+	body.set_meta("collision_kind", kind)
+	body.position = pos
+	var collision_shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	collision_shape.shape = box
+	body.add_child(collision_shape)
+	parent.add_child(body)
+
+
+func _on_drone_body_entered(body: Node3D) -> void:
+	if _collision_reported:
+		return
+	var kind: Variant = body.get_meta("collision_kind", "obstacle")
+	_collision_socket.put_packet(JSON.stringify({"event": "collision", "kind": kind}).to_utf8_buffer())
+	_collision_reported = true
 
 
 func _open_shared_memory() -> void:

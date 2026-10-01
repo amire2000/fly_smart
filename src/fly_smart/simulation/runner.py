@@ -11,7 +11,8 @@ import pybullet as p
 from .drone_physics import PhysicsEngine, clamp
 from ..common.flight_control import AttitudeController
 from .pybullet_sensors import read_imu
-from .pybullet_utils import create_world, draw_force_vectors
+from .pybullet_utils import create_world, draw_force_vectors, reset_drone
+from .gui_helper import SimulationControls, add_simulation_buttons
 from .forward_camera import add_environment_buildings, add_red_cube, forward_rgb
 from .godot_bridge import GodotBridge
 from ..red_target_detector import detect_red_box
@@ -45,7 +46,7 @@ class StrikeSimulation:
         self.godot = godot
         self.scenario_name = scenario_name
 
-    def run(self, gui: bool, max_seconds: float, video: Path | None, plot: Path | None, csv: Path | None = None, summary: Path | None = None) -> StrikeResult:
+    def run(self, gui: bool, max_seconds: float, video: Path | None, plot: Path | None, csv: Path | None = None, summary: Path | None = None, show_godot_frame: bool = False, show_plots: bool = False, interactive: bool = False) -> StrikeResult:
         config = self.config
         model = self.scene.drone_model
         settings = self.scene.physics_settings
@@ -55,7 +56,7 @@ class StrikeSimulation:
         drone = create_world(model, settings)
         engine = PhysicsEngine(model, settings)
         p.resetBasePositionAndOrientation(drone, config.launch_position, (0, 0, 0, 1))
-        cube = add_red_cube(self.scene.target_center, self.scene.target_size_m)
+        cube = add_red_cube(self.scene.target_center, self.scene.target_size_m, collision=self.godot is None)
         add_environment_buildings()
         if self.godot:
             self.godot.open()
@@ -73,24 +74,90 @@ class StrikeSimulation:
         renderer = p.ER_BULLET_HARDWARE_OPENGL if gui else p.ER_TINY_RENDERER
         impact_speed, stop_at_s = 0.0, None
         log = FlightLog()
-        writer = self._video_writer(video, config)
-        live_plot = self._live_plot(gui, plot, config, self.scene)
-        if gui:
+        writer = None
+        attempt_number = 0
+        attempt_video, attempt_plot, attempt_csv, attempt_summary = video, plot, csv, summary
+        live_plot = self._live_plot(gui or show_plots or interactive, plot, config, self.scene)
+        if interactive and live_plot:
+            live_plot.figure.subplots_adjust(bottom=0.08)
+        controls: SimulationControls | None = add_simulation_buttons(live_plot.figure, 0.01) if interactive and live_plot else None
+        show_frame = gui or show_godot_frame
+        if show_frame:
             cv2.namedWindow("TTC diagonal strike", cv2.WINDOW_NORMAL)
             cv2.moveWindow("TTC diagonal strike", *config.opencv_window_position_px)
+        if gui:
             p.resetDebugVisualizerCamera(36.0, 48.0, -25.0, (7.0, 0.0, 7.0))
 
-        def finish(success: bool, phase: str, now_s: float, abort_reason: str | None = None) -> StrikeResult:
-            if plot:
-                save_plot(log, config, self.scene, plot, self.scenario_name)
-            if csv:
-                save_csv(log, csv)
+        def reset_attempt() -> None:
+            """Restore the complete flight state and publish Godot's initial pose."""
+            nonlocal attempt_number, attempt_video, attempt_plot, attempt_csv, attempt_summary
+            nonlocal engine, barometer, tracker, guidance, vertical_imu, vertical_estimator
+            nonlocal previous_vertical_velocity_mps, attitude_controller, torque, command, baro
+            nonlocal observation, target_visible, impact_speed, stop_at_s, log, writer
+            if writer:
+                writer.release()
+            if interactive and attempt_number:
+                if attempt_plot:
+                    save_plot(log, config, self.scene, attempt_plot, self.scenario_name)
+                if attempt_csv:
+                    save_csv(log, attempt_csv)
+                if attempt_summary:
+                    save_summary(
+                        build_summary(
+                            log,
+                            config,
+                            self.scene,
+                            False,
+                            command.phase.value,
+                            log.time_s[-1] if log.time_s else 0.0,
+                            {"video": attempt_video, "plot": attempt_plot, "csv": attempt_csv, "summary": attempt_summary},
+                            "Restarted",
+                        ),
+                        attempt_summary,
+                    )
+            attempt_number += 1
+            if interactive and summary:
+                attempt_dir = summary.parent / f"attempt-{attempt_number:03d}"
+                attempt_video = attempt_dir / video.name if video else None
+                attempt_plot = attempt_dir / plot.name if plot else None
+                attempt_csv = attempt_dir / csv.name if csv else None
+                attempt_summary = attempt_dir / summary.name
+            writer = self._video_writer(attempt_video, config)
+            reset_drone(drone, config.launch_position)
+            p.resetBasePositionAndOrientation(cube, self.scene.target_center, (0, 0, 0, 1))
+            p.resetBaseVelocity(cube, (0, 0, 0), (0, 0, 0))
+            engine = PhysicsEngine(model, settings)
+            barometer, tracker, guidance = Barometer(config), BboxTtcTracker(config), StrikeGuidance(config)
+            vertical_imu = VerticalImu(config)
+            vertical_estimator = VerticalEstimator(config, config.launch_position[2])
+            previous_vertical_velocity_mps = 0.0
+            attitude_controller = AttitudeController(config.pitch_attitude_pid_gains)
+            torque = (0.0, 0.0, 0.0)
+            command = GuidanceCommand(FlightPhase.TAKEOFF, config.hover_thrust_n, 0.0, None)
+            baro = BarometerReading(config.launch_position[2], 0.0)
+            observation, target_visible = None, False
+            impact_speed, stop_at_s = 0.0, None
+            log = FlightLog()
             if live_plot:
                 refresh_plot(live_plot, log)
-            result = StrikeResult(success, phase, now_s, impact_speed, video, plot, csv, summary)
-            summary_data = build_summary(log, config, self.scene, success, phase, now_s, {"video": video, "plot": plot, "csv": csv, "summary": summary}, abort_reason)
-            if summary:
-                save_summary(summary_data, summary)
+            if self.godot:
+                self.godot.clear_collision_events()
+                target_position, target_orientation = p.getBasePositionAndOrientation(cube)
+                self.godot.publish_pose(config.launch_position, (0, 0, 0, 1), target_position, target_orientation, reset=True)
+
+        reset_attempt()
+
+        def finish(success: bool, phase: str, now_s: float, abort_reason: str | None = None) -> StrikeResult:
+            if attempt_plot:
+                save_plot(log, config, self.scene, attempt_plot, self.scenario_name)
+            if attempt_csv:
+                save_csv(log, attempt_csv)
+            if live_plot:
+                refresh_plot(live_plot, log)
+            result = StrikeResult(success, phase, now_s, impact_speed, attempt_video, attempt_plot, attempt_csv, attempt_summary)
+            summary_data = build_summary(log, config, self.scene, success, phase, now_s, {"video": attempt_video, "plot": attempt_plot, "csv": attempt_csv, "summary": attempt_summary}, abort_reason)
+            if attempt_summary:
+                save_summary(summary_data, attempt_summary)
             self._print_summary(result, summary_data)
             return result
 
@@ -101,7 +168,23 @@ class StrikeSimulation:
             return finish(False, command.phase.value, now_s, "PyBullet physics server closed")
 
         try:
-            for step in range(round(max_seconds / time_step)):
+            step = 0
+            while step < round(max_seconds / time_step):
+                if controls:
+                    import matplotlib.pyplot as plt
+                    while not controls.running:
+                        if controls.exit_requested:
+                            return finish(False, command.phase.value, step * time_step, "Interactive session closed")
+                        if controls.consume_reset():
+                            reset_attempt()
+                            step = 0
+                        plt.pause(0.02)
+                        if show_frame:
+                            cv2.waitKey(1)
+                    if controls.consume_reset():
+                        reset_attempt()
+                        step = 0
+                        continue
                 now_s = step * time_step
                 disconnected = finish_if_disconnected(now_s)
                 if disconnected:
@@ -124,7 +207,7 @@ class StrikeSimulation:
                         if godot_frame is not None:
                             frame, box = detect_red_box(godot_frame)
                             if writer:
-                                writer.write(frame)
+                                writer.write(cv2.resize(frame, config.environment_size_px))
                             target_visible = box is not None
                             observation = tracker.update(box, now_s)
                     else:
@@ -203,13 +286,16 @@ class StrikeSimulation:
                     # passive post-impact physics continues for the video.
                     log.append(now_s, position, velocity, command, pitch_rad, pitch_torque, observation, flight_step, baro)
 
-                if stop_at_s is None and p.getContactPoints(drone, cube):
+                collision_kind = self.godot.read_collision_event() if self.godot else ("target" if p.getContactPoints(drone, cube) else None)
+                if stop_at_s is None and collision_kind == "target":
                     impact_speed = sqrt(sum(component**2 for component in incoming_velocity))
                     log.mark_collision(now_s, position, incoming_velocity)
                     stop_at_s = now_s + config.post_impact_seconds
                     print(f"Impact: {impact_speed:.1f} m/s; recording aftermath for {config.post_impact_seconds:.0f} s")
                     if live_plot:
                         refresh_plot(live_plot, log)
+                elif stop_at_s is None and collision_kind == "obstacle":
+                    return finish(False, command.phase.value, now_s, "Godot obstacle collision")
                 elif stop_at_s is None and live_plot and step % (physics_hz // config.camera_hz) == 0:
                     refresh_plot(live_plot, log)
                 if stop_at_s is not None and now_s >= stop_at_s:
@@ -219,13 +305,20 @@ class StrikeSimulation:
                     # differently from a real airframe.
                     return finish(True, "post-impact", now_s)
 
-                if gui:
+                if show_frame:
                     if frame is not None:
                         cv2.imshow("TTC diagonal strike", annotate(frame, command, observation))
                         if cv2.waitKey(1) & 0xFF in (27, ord("q"), ord("Q")):
                             return finish(False, command.phase.value, now_s)
+                if gui:
                     draw_force_vectors(drone, flight_step, force_lines)
+                if controls and controls.consume_reset():
+                    reset_attempt()
+                    step = 0
+                    continue
+                if gui or self.godot:
                     time.sleep(time_step)
+                step += 1
             print(f"Strike timed out in {command.phase.value} phase")
             return finish(False, command.phase.value, max_seconds)
         except p.error:

@@ -27,10 +27,10 @@ TIME_STEP = SETTINGS.time_step_s
 CONTROL_STEPS = SETTINGS.control_steps
 
 
-def add_red_cube(center: tuple[float, float, float] = (20, 0, 1), size_m: float = 2.0) -> int:
-    """Add a static red cube target; defaults preserve the Module 7 scene."""
+def add_red_cube(center: tuple[float, float, float] = (20, 0, 1), size_m: float = 2.0, collision: bool = True) -> int:
+    """Add a static red cube, optionally without a PyBullet collision shape."""
     half_extent = size_m / 2
-    shape = p.createCollisionShape(p.GEOM_BOX, halfExtents=(half_extent, half_extent, half_extent))
+    shape = p.createCollisionShape(p.GEOM_BOX, halfExtents=(half_extent, half_extent, half_extent)) if collision else -1
     visual = p.createVisualShape(p.GEOM_BOX, halfExtents=(half_extent, half_extent, half_extent), rgbaColor=(0.9, 0.05, 0.05, 1))
     return p.createMultiBody(baseMass=0, baseCollisionShapeIndex=shape, baseVisualShapeIndex=visual, basePosition=center)
 

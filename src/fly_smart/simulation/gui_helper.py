@@ -36,18 +36,14 @@ class SimulationControls:
 
 
 def add_simulation_buttons(figure: object, y: float = 0.67) -> SimulationControls:
-    """Add Start, Stop, Reset, and Exit buttons to an existing Matplotlib figure."""
+    """Add Start and Restart buttons to an existing Matplotlib figure."""
     from matplotlib.widgets import Button
 
     controls = SimulationControls()
-    start = Button(figure.add_axes((0.06, y, 0.18, 0.18)), "Start")
-    stop = Button(figure.add_axes((0.28, y, 0.18, 0.18)), "Stop")
-    reset = Button(figure.add_axes((0.50, y, 0.18, 0.18)), "Reset")
-    exit_button = Button(figure.add_axes((0.72, y, 0.18, 0.18)), "Exit")
+    start = Button(figure.add_axes((0.35, y, 0.12, 0.025)), "Start")
+    reset = Button(figure.add_axes((0.53, y, 0.12, 0.025)), "Restart")
     start.on_clicked(lambda _: controls.start())
-    stop.on_clicked(lambda _: controls.stop())
     reset.on_clicked(lambda _: controls.request_reset())
-    exit_button.on_clicked(lambda _: controls.request_exit())
     figure.canvas.mpl_connect("close_event", lambda _: controls.request_exit())
-    controls.widgets = (start, stop, reset, exit_button)
+    controls.widgets = (start, reset)
     return controls
