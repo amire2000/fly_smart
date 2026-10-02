@@ -14,6 +14,16 @@ from ..sensing import BarometerReading
 from ..ttc import TtcObservation
 
 
+def _bbox_center_angles(dx_px: float, dy_px: float, camera_width_px: float, camera_height_px: float, horizontal_fov_rad: float) -> tuple[float, float]:
+    """Convert image-center offsets to horizontal and vertical angles."""
+    if not (isfinite(dx_px) and isfinite(dy_px)):
+        return float("nan"), float("nan")
+    vertical_fov_rad = 2.0 * atan(tan(horizontal_fov_rad / 2.0) * camera_height_px / camera_width_px)
+    dx_deg = degrees(atan((dx_px / (camera_width_px / 2.0)) * tan(horizontal_fov_rad / 2.0)))
+    dy_deg = degrees(atan((dy_px / (camera_height_px / 2.0)) * tan(vertical_fov_rad / 2.0)))
+    return dx_deg, dy_deg
+
+
 @dataclass
 class FlightLog:
     time_s: list[float] = field(default_factory=list)
@@ -42,6 +52,9 @@ class FlightLog:
     raw_bbox_growth_px_s: list[float] = field(default_factory=list)
     bbox_center_dx_px: list[float] = field(default_factory=list)
     bbox_center_dy_px: list[float] = field(default_factory=list)
+    bbox_center_dx_deg: list[float] = field(default_factory=list)
+    bbox_center_dy_deg: list[float] = field(default_factory=list)
+    pitch_compensated_dy_deg: list[float] = field(default_factory=list)
     body_drag_x_n: list[float] = field(default_factory=list)
     body_drag_z_n: list[float] = field(default_factory=list)
     angular_damping_pitch_torque_nm: list[float] = field(default_factory=list)
@@ -51,7 +64,7 @@ class FlightLog:
     collision_position_m: tuple[float, float, float] | None = None
     collision_velocity_mps: tuple[float, float, float] | None = None
 
-    def append(self, now_s: float, position: tuple[float, float, float], velocity: tuple[float, float, float], command: GuidanceCommand, measured_pitch_rad: float = 0.0, pitch_torque: float = 0.0, observation: TtcObservation | None = None, physics_step: PhysicsStep | None = None, barometer: BarometerReading | None = None, camera_width_px: int = 640, camera_height_px: int = 480) -> None:
+    def append(self, now_s: float, position: tuple[float, float, float], velocity: tuple[float, float, float], command: GuidanceCommand, measured_pitch_rad: float = 0.0, pitch_torque: float = 0.0, observation: TtcObservation | None = None, physics_step: PhysicsStep | None = None, barometer: BarometerReading | None = None, camera_width_px: int = 640, camera_height_px: int = 480, camera_fov_deg: float = 90.0) -> None:
         """Record state, guidance, and optional applied shared-force telemetry."""
         self.time_s.append(now_s)
         self.x_m.append(position[0])
@@ -85,6 +98,16 @@ class FlightLog:
         else:
             self.bbox_center_dx_px.append(float("nan"))
             self.bbox_center_dy_px.append(float("nan"))
+        dx_deg, dy_deg = _bbox_center_angles(
+            self.bbox_center_dx_px[-1],
+            self.bbox_center_dy_px[-1],
+            camera_width_px,
+            camera_height_px,
+            radians(camera_fov_deg),
+        )
+        self.bbox_center_dx_deg.append(dx_deg)
+        self.bbox_center_dy_deg.append(dy_deg)
+        self.pitch_compensated_dy_deg.append(dy_deg - degrees(measured_pitch_rad) if isfinite(dy_deg) else float("nan"))
         body_drag = physics_step.body_drag_force_body_n if physics_step else (float("nan"),) * 3
         angular_damping = physics_step.angular_damping_torque_body_nm if physics_step else (float("nan"),) * 3
         gyroscopic = physics_step.gyroscopic_torque_body_nm if physics_step else (float("nan"),) * 3
@@ -128,6 +151,9 @@ def append_telemetry_sample(log: FlightLog, sample: dict[str, object]) -> None:
     log.raw_bbox_growth_px_s.append(number("raw_bbox_growth"))
     log.bbox_center_dx_px.append(number("bbox_dx"))
     log.bbox_center_dy_px.append(number("bbox_dy"))
+    log.bbox_center_dx_deg.append(number("bbox_dx_deg"))
+    log.bbox_center_dy_deg.append(number("bbox_dy_deg"))
+    log.pitch_compensated_dy_deg.append(number("pitch_compensated_dy_deg"))
     log.barometer_raw_altitude_m.append(number("barometer_raw"))
     log.barometer_filtered_altitude_m.append(number("barometer_filtered"))
     log.barometer_filtered_vertical_velocity_mps.append(float("nan"))
@@ -225,12 +251,13 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
     dy_line, = alignment_axis.plot([], [], color="#dc2626", label="dy pixel")
     dx_angle_line, = alignment_angle_axis.plot([], [], "--", color="#2563eb", alpha=0.75, label="dx angle")
     dy_angle_line, = alignment_angle_axis.plot([], [], "--", color="#dc2626", alpha=0.75, label="dy angle")
+    compensated_dy_line, = alignment_angle_axis.plot([], [], "-.", color="#7c3aed", alpha=0.9, label="dy angle − pitch")
     alignment_zero_px = alignment_axis.axhline(0.0, color="#374151", linestyle=":")
     alignment_zero_angle = alignment_angle_axis.axhline(0.0, color="#374151", linestyle=":")
     alignment_axis.set(xlabel="time (s)", ylabel="center error (px)", title="Target alignment")
     alignment_angle_axis.set_ylabel("center error (deg)")
     alignment_axis.grid(alpha=0.25)
-    alignment_axis.legend((dx_line, dy_line, dx_angle_line, dy_angle_line), ("dx pixel", "dy pixel", "dx angle", "dy angle"), loc="upper left")
+    alignment_axis.legend((dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line), ("dx pixel", "dy pixel", "dx angle", "dy angle", "dy angle − pitch"), loc="upper left")
 
     raw_altitude_line, = barometer_axis.plot([], [], "--", color="#f97316", alpha=0.8, label="raw barometer altitude")
     filtered_altitude_line, = barometer_axis.plot([], [], color="#2563eb", linewidth=2, label="filtered barometer altitude")
@@ -259,7 +286,7 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
         ttc_gate_line,
         alignment_zero_px,
         alignment_zero_angle,
-        (vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, command_vx_line, command_vz_line, pid_vz_target_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, raw_altitude_line, filtered_altitude_line, true_altitude_line),
+        (vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, command_vx_line, command_vz_line, pid_vz_target_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line),
         (velocity_axis, guidance_axis, growth_axis, ttc_axis, alignment_axis, alignment_angle_axis, barometer_axis),
         collision_axes=(velocity_axis, trajectory_axis, guidance_axis, growth_axis, ttc_axis, alignment_axis, alignment_angle_axis, barometer_axis),
     )
@@ -304,7 +331,7 @@ def _refresh_phase_backgrounds(plot: TelemetryPlot, log: FlightLog) -> None:
 
 
 def refresh_plot(plot: TelemetryPlot, log: FlightLog) -> None:
-    vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, command_vx_line, command_vz_line, pid_vz_target_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, raw_altitude_line, filtered_altitude_line, true_altitude_line = plot.lines
+    vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, command_vx_line, command_vz_line, pid_vz_target_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line = plot.lines
     vx_line.set_data(log.time_s, log.vx_mps)
     velocity_command_line.set_data(log.time_s, log.command_vx_mps)
     vz_line.set_data(log.time_s, log.vz_mps)
@@ -330,14 +357,9 @@ def refresh_plot(plot: TelemetryPlot, log: FlightLog) -> None:
     filtered_ttc_line.set_data(log.time_s, tracking_values(log.ttc_s))
     dx_line.set_data(log.time_s, tracking_values(log.bbox_center_dx_px))
     dy_line.set_data(log.time_s, tracking_values(log.bbox_center_dy_px))
-    camera_width = plot.camera_width_px
-    camera_height = plot.camera_height_px
-    horizontal_fov = plot.camera_fov_rad
-    vertical_fov = 2.0 * atan(tan(horizontal_fov / 2.0) * camera_height / camera_width)
-    def angle_values(values: list[float], half_size: float, fov: float) -> list[float]:
-        return [degrees(atan((value / half_size) * tan(fov / 2.0))) if isfinite(value) else float("nan") for value in values]
-    dx_angle_line.set_data(log.time_s, angle_values(tracking_values(log.bbox_center_dx_px), camera_width / 2.0, horizontal_fov))
-    dy_angle_line.set_data(log.time_s, angle_values(tracking_values(log.bbox_center_dy_px), camera_height / 2.0, vertical_fov))
+    dx_angle_line.set_data(log.time_s, tracking_values(log.bbox_center_dx_deg))
+    dy_angle_line.set_data(log.time_s, tracking_values(log.bbox_center_dy_deg))
+    compensated_dy_line.set_data(log.time_s, tracking_values(log.pitch_compensated_dy_deg))
     raw_altitude_line.set_data(log.time_s, log.barometer_raw_altitude_m)
     filtered_altitude_line.set_data(log.time_s, log.barometer_filtered_altitude_m)
     true_altitude_line.set_data(log.time_s, log.z_m)
@@ -374,7 +396,7 @@ def save_csv(log: FlightLog, output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     fields = ("time_s", "phase", "x_m", "y_m", "z_m", "vx_mps", "vz_mps", "barometer_raw_altitude_m", "barometer_filtered_altitude_m", "barometer_filtered_vertical_velocity_mps", "command_vx_mps",
               "command_vz_mps", "pid_vz_target_mps", "command_altitude_m", "command_thrust_n", "command_pitch_deg",
-              "measured_pitch_deg", "pitch_error_deg", "pitch_torque", "ttc_s", "raw_ttc_s", "bbox_scale_px", "bbox_growth_px_s", "raw_bbox_growth_px_s", "bbox_center_dx_px", "bbox_center_dy_px",
+              "measured_pitch_deg", "pitch_error_deg", "pitch_torque", "ttc_s", "raw_ttc_s", "bbox_scale_px", "bbox_growth_px_s", "raw_bbox_growth_px_s", "bbox_center_dx_px", "bbox_center_dy_px", "bbox_center_dx_deg", "bbox_center_dy_deg", "pitch_compensated_dy_deg",
               "body_drag_x_n", "body_drag_z_n", "angular_damping_pitch_torque_nm", "gyroscopic_pitch_torque_nm", "ground_effect_max_multiplier")
     with output.open("w", newline="") as stream:
         writer = csv.writer(stream)

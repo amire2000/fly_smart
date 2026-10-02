@@ -120,6 +120,9 @@ def latest_sample(log: FlightLog) -> dict[str, object] | None:
         "raw_bbox_growth": log.raw_bbox_growth_px_s[index],
         "bbox_dx": log.bbox_center_dx_px[index] if log.bbox_center_dx_px else float("nan"),
         "bbox_dy": log.bbox_center_dy_px[index] if log.bbox_center_dy_px else float("nan"),
+        "bbox_dx_deg": log.bbox_center_dx_deg[index] if log.bbox_center_dx_deg else float("nan"),
+        "bbox_dy_deg": log.bbox_center_dy_deg[index] if log.bbox_center_dy_deg else float("nan"),
+        "pitch_compensated_dy_deg": log.pitch_compensated_dy_deg[index] if log.pitch_compensated_dy_deg else float("nan"),
         "barometer_raw": log.barometer_raw_altitude_m[index],
         "barometer_filtered": log.barometer_filtered_altitude_m[index],
     }

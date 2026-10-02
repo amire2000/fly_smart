@@ -1,3 +1,5 @@
+from math import atan, degrees, isclose, radians, tan
+
 from fly_smart.guidance import FlightPhase, GuidanceCommand
 from fly_smart.simulation.config import StrikeConfig
 from fly_smart.simulation.telemetry import FlightLog, make_plot, refresh_plot
@@ -28,6 +30,28 @@ def test_bbox_center_errors_are_recorded_in_pixels():
     assert log.bbox_center_dy_px == [20.0]
 
 
+def test_camera_angles_and_pitch_compensation_use_configured_geometry():
+    command = GuidanceCommand(FlightPhase.TRACK, 1.0, 0.0, TrajectoryCommand(13.0, -1.5, 15.0))
+    observation = TtcObservation((330, 250, 20, 20), 20.0, 2.0, 10.0, 2.0, 10.0)
+    log = FlightLog()
+    log.append(0.0, (0.0, 0.0, 15.0), (0.0, 0.0, 0.0), command, measured_pitch_rad=radians(5.0), observation=observation)
+    expected_dx = degrees(atan((20.0 / 320.0) * tan(radians(90.0) / 2.0)))
+    vertical_fov = 2.0 * atan(tan(radians(90.0) / 2.0) * 480.0 / 640.0)
+    expected_dy = degrees(atan((20.0 / 240.0) * tan(vertical_fov / 2.0)))
+    assert isclose(log.bbox_center_dx_deg[0], expected_dx)
+    assert isclose(log.bbox_center_dy_deg[0], expected_dy)
+    assert isclose(log.pitch_compensated_dy_deg[0], expected_dy - 5.0)
+
+
+def test_camera_compensation_is_nan_without_a_detection():
+    command = GuidanceCommand(FlightPhase.TRACK, 1.0, 0.0, TrajectoryCommand(13.0, -1.5, 15.0))
+    log = FlightLog()
+    log.append(0.0, (0.0, 0.0, 15.0), (0.0, 0.0, 0.0), command)
+    assert log.bbox_center_dx_deg[0] != log.bbox_center_dx_deg[0]
+    assert log.bbox_center_dy_deg[0] != log.bbox_center_dy_deg[0]
+    assert log.pitch_compensated_dy_deg[0] != log.pitch_compensated_dy_deg[0]
+
+
 def test_ttc_plot_shows_raw_filtered_seconds_and_activation_gate():
     import matplotlib
     matplotlib.use("Agg")
@@ -47,4 +71,5 @@ def test_ttc_plot_shows_raw_filtered_seconds_and_activation_gate():
     assert plot.alignment_axis.get_ylabel() == "center error (px)"
     assert list(plot.lines[16].get_ydata()) == [-315.0, -315.0]
     assert list(plot.lines[17].get_ydata()) == [-235.0, -235.0]
+    assert list(plot.lines[20].get_ydata()) == list(log.pitch_compensated_dy_deg)
     plt.close(plot.figure)
