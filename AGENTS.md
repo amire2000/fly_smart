@@ -25,9 +25,9 @@ production core.
 - Put scenario YAML files in `configs/` and tests in `tests/`.
 - Add docstrings to every module and class, plus methods whose purpose,
   inputs, side effects, or return value are not obvious from their signature.
-- Save every design and implementation plan in `docs/design/` before making
+- Save every design and implementation plan in `docs/planes/` before making
   the related code changes.
-- Maintain [`docs/design/README.md`](docs/design/README.md) as the index for
+- Maintain [`docs/planes/README.md`](docs/planes/README.md) as the index for
   every design document. Add each document with a brief description and the
   commit that implemented it; use `pending` until that implementation is
   committed.
@@ -35,7 +35,7 @@ production core.
   every release entry into separate **Logic** and **Simulation** sections;
   create the document only when a release is being prepared.
 - Track and review every change to TTC estimation or flight-guidance behavior.
-  Before changing either, add or update a detailed document in `docs/design/`
+  Before changing either, add or update a detailed document in `docs/planes/`
   explaining the intent, algorithm or state-machine change, tuning impact, and
   validation evidence.
 - Treat `outputs/ttc_runs/` as generated run data; do not edit it as source.
