@@ -12,6 +12,7 @@ const COLLISION_PORT := 9101
 const CONTROL_PORT := 9102
 const FPV_MOUNT := Transform3D(Basis(Vector3.UP, -PI / 2.0), Vector3(0.35, 0.05, 0.0))
 const SPECTATOR_TURN_SPEED := 0.01
+const TARGET_DISTANCE_PRESETS_M := [30, 40, 50, 60, 70, 80]
 
 var _drone: Node3D
 var _target: Node3D
@@ -26,6 +27,8 @@ var _control_socket := PacketPeerUDP.new()
 var _bbox_panel: Panel
 var _telemetry_label: Label
 var _rtf_label: Label
+var _target_distance: OptionButton
+var _reset_popup: PopupPanel
 var _active_slot := 0
 var _sequence := 0
 var _latest_pose: Dictionary = {}
@@ -149,6 +152,7 @@ func _receive_latest_pose() -> void:
 			_collision_reported = false
 		_apply_pose(value.get("drone"), _drone)
 		_apply_pose(value.get("target"), _target)
+		_update_target_distance(value.get("target_control"))
 		_update_fpv_overlay(value.get("overlay", {}))
 
 
@@ -267,6 +271,28 @@ func _build_cameras() -> void:
 	_add_control_button(controls, "▶", "Start simulation", "start")
 	_add_control_button(controls, "↻", "Reset simulation", "reset")
 
+	_reset_popup = PopupPanel.new()
+	_reset_popup.name = "ResetTargetPopup"
+	var reset_contents := VBoxContainer.new()
+	reset_contents.custom_minimum_size = Vector2(220, 110)
+	reset_contents.add_theme_constant_override("separation", 8)
+	_reset_popup.add_child(reset_contents)
+	var reset_label := Label.new()
+	reset_label.text = "Reset target distance"
+	reset_contents.add_child(reset_label)
+	_target_distance = OptionButton.new()
+	_target_distance.name = "TargetDistance"
+	_target_distance.tooltip_text = "Target distance applied on reset"
+	_target_distance.custom_minimum_size = Vector2(200, 34)
+	for distance in TARGET_DISTANCE_PRESETS_M:
+		_target_distance.add_item("Box: %d m" % distance, distance)
+	reset_contents.add_child(_target_distance)
+	var confirm := Button.new()
+	confirm.text = "Reset"
+	confirm.pressed.connect(_confirm_reset_pressed)
+	reset_contents.add_child(confirm)
+	overlay.add_child(_reset_popup)
+
 
 func _add_control_button(parent: Control, icon: String, tooltip: String, action: String) -> void:
 	var button := Button.new()
@@ -283,12 +309,41 @@ func _add_control_button(parent: Control, icon: String, tooltip: String, action:
 	var hover := normal.duplicate()
 	hover.bg_color = Color(0.08, 0.28, 0.45, 0.95)
 	button.add_theme_stylebox_override("hover", hover)
-	button.pressed.connect(_send_control.bind(action))
+	if action == "start":
+		button.pressed.connect(_on_start_pressed)
+	else:
+		button.pressed.connect(_on_reset_pressed)
 	parent.add_child(button)
 
 
+func _on_start_pressed() -> void:
+	_target_distance.disabled = true
+	_send_control("start")
+
+
+func _on_reset_pressed() -> void:
+	_target_distance.disabled = false
+	_reset_popup.popup_centered()
+
+
+func _confirm_reset_pressed() -> void:
+	_reset_popup.hide()
+	_send_control("reset")
+
+
 func _send_control(action: String) -> void:
-	_control_socket.put_packet(JSON.stringify({"event": "simulation_control", "action": action}).to_utf8_buffer())
+	var distance := _target_distance.get_selected_id() if _target_distance != null else 30
+	_control_socket.put_packet(JSON.stringify({"event": "simulation_control", "action": action, "target_distance_m": distance}).to_utf8_buffer())
+
+
+func _update_target_distance(raw_control: Variant) -> void:
+	if not raw_control is Dictionary or _target_distance == null:
+		return
+	var distance := int(round(float(raw_control.get("distance_m", 30))))
+	for index in range(_target_distance.item_count):
+		if _target_distance.get_item_id(index) == distance:
+			_target_distance.select(index)
+			return
 
 
 func _update_fpv_overlay(raw_overlay: Variant) -> void:

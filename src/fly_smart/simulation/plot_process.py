@@ -68,6 +68,10 @@ def run_plot_process(config: StrikeConfig, scene: SceneConfig, scenario_name: st
                 kind = message.get("type")
                 if kind == "telemetry_sample":
                     append_telemetry_sample(log, message)
+                elif kind == "target":
+                    center = message.get("center_m")
+                    if isinstance(center, list) and len(center) == 3:
+                        plot.target_marker.set_offsets([[float(center[0]), float(center[2])]])
                 elif kind == "reset":
                     log = FlightLog()
                 elif kind == "collision":
@@ -79,7 +83,9 @@ def run_plot_process(config: StrikeConfig, scene: SceneConfig, scenario_name: st
             if now >= next_refresh:
                 refresh_plot(plot, log)
                 next_refresh = now + 1.0 / PLOT_HZ
-            plt.pause(0.001)
+            # Keep Matplotlib responsive without spinning a CPU core while
+            # waiting for the next telemetry refresh.
+            plt.pause(0.02)
         plt.close(plot.figure)
     except OSError:
         return

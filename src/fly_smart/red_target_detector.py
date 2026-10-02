@@ -15,7 +15,7 @@ def detect_red_box(rgb: np.ndarray) -> tuple[np.ndarray, tuple[int, int, int, in
     if not contours:
         return bgr, None
     contour = max(contours, key=cv2.contourArea)
-    if cv2.contourArea(contour) < 80:
+    if cv2.contourArea(contour) < 20:
         return bgr, None
     x, y, width, height = cv2.boundingRect(contour)
     cv2.rectangle(bgr, (x, y), (x + width, y + height), (0, 255, 255), 2)

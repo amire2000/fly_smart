@@ -14,6 +14,9 @@ for work that has not been committed yet.
 | [godot-pybullet-renderer-scene.md](godot-pybullet-renderer-scene.md) | Godot renderer scene, pose bridge, FPV camera, and collision events. | `e208f57` |
 | [godot-rtf-overlay.md](godot-rtf-overlay.md) | Calculate session real-time factor and show it in Godot's lower-right overlay. | `pending` |
 | [live-plot-process.md](live-plot-process.md) | Move live Matplotlib plotting to a UDP-fed subprocess so it cannot block physics. | `pending` |
+| [godot-target-distance-selector.md](godot-target-distance-selector.md) | Reset-time Godot target distance presets. | `pending` |
+| [godot-cpu-bbox-diagnostics.md](godot-cpu-bbox-diagnostics.md) | Prevent plotter busy-loop CPU use and retain distant red-target detections. | `pending` |
+| [live-plot-target-distance.md](live-plot-target-distance.md) | Update the live plot target marker after each reset distance selection. | `pending` |
 | [godot-video-frame-size.md](godot-video-frame-size.md) | Normalize Godot camera frames before video encoding. | `e208f57` |
 | [ttc-feedforward-descent.md](ttc-feedforward-descent.md) | Feed-forward descent behavior when TTC is unavailable. | `69fc584` |
 | [vscode-godot-task.md](vscode-godot-task.md) | VS Code tasks for Godot, Python, and the compound launcher. | `e208f57` |

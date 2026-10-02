@@ -40,7 +40,7 @@ class GodotBridge:
         self._file = self.path.open("rb")
         self._mapping = mmap.mmap(self._file.fileno(), 0, access=mmap.ACCESS_READ)
 
-    def publish_pose(self, drone_position, drone_orientation, target_position, target_orientation, reset: bool = False, overlay: dict | None = None) -> None:
+    def publish_pose(self, drone_position, drone_orientation, target_position, target_orientation, reset: bool = False, overlay: dict | None = None, target_control: dict | None = None) -> None:
         """Send the latest PyBullet poses; Godot drains old packets each frame."""
         payload = {
             "drone": {"p": list(drone_position), "q": list(drone_orientation)},
@@ -50,6 +50,8 @@ class GodotBridge:
             payload["reset"] = True
         if overlay is not None:
             payload["overlay"] = overlay
+        if target_control is not None:
+            payload["target_control"] = target_control
         self._socket.sendto(json.dumps(payload, separators=(",", ":")).encode("utf-8"), self.destination)
 
     def read_frame(self) -> np.ndarray | None:
@@ -91,20 +93,22 @@ class GodotBridge:
             except BlockingIOError:
                 return
 
-    def read_control_event(self) -> str | None:
-        """Return the newest valid Godot start or reset command."""
-        action = None
+    def read_control_event(self) -> dict | None:
+        """Return the newest valid Godot command, including its selection."""
+        event = None
         while True:
             try:
                 payload, _ = self._control_socket.recvfrom(1024)
             except BlockingIOError:
-                return action
+                return event
             try:
                 value = json.loads(payload)
             except (TypeError, json.JSONDecodeError):
                 continue
             if isinstance(value, dict) and value.get("event") == "simulation_control" and value.get("action") in {"start", "reset"}:
-                action = value["action"]
+                event = {"action": value["action"]}
+                if "target_distance_m" in value:
+                    event["target_distance_m"] = value["target_distance_m"]
 
     def clear_control_events(self) -> None:
         """Discard stale UI commands before an interactive attempt starts."""

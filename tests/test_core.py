@@ -29,6 +29,11 @@ def test_core_guidance_and_vision_do_not_need_simulation():
     _, box = detect_red_box(frame)
     assert box is None
 
+    small = np.zeros((40, 40, 3), dtype=np.uint8)
+    small[15:23, 15:23] = (255, 0, 0)
+    _, box = detect_red_box(small)
+    assert box == (15, 15, 8, 8)
+
 
 def test_ttc_unavailable_descent_feedforward_is_bounded_and_optional():
     config = MissionConfig()

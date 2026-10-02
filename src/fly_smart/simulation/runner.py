@@ -1,6 +1,6 @@
 """PyBullet adapter that composes sensing, TTC, guidance, views, and telemetry."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import degrees, sqrt
 from pathlib import Path
 import time
@@ -25,6 +25,9 @@ from .telemetry import FlightLog, build_summary, save_csv, save_plot, save_summa
 from .plot_process import latest_sample, send_plot_message, start_plot_process
 from ..ttc import BboxTtcTracker, TtcObservation
 from .views import annotate, environment_rgb
+
+
+TARGET_DISTANCE_PRESETS_M = (30.0, 40.0, 50.0, 60.0, 70.0, 80.0)
 
 
 def real_time_factor(simulated_seconds: float, wall_seconds: float) -> float:
@@ -75,10 +78,12 @@ class StrikeSimulation:
         physics_hz = settings.physics_hz
         time_step = settings.time_step_s
         control_steps = settings.control_steps
+        active_scene = self.scene
+        active_target_distance_m = self.scene.target_center[0] - config.launch_position[0]
         drone = create_world(model, settings)
         engine = PhysicsEngine(model, settings)
         p.resetBasePositionAndOrientation(drone, config.launch_position, (0, 0, 0, 1))
-        cube = add_red_cube(self.scene.target_center, self.scene.target_size_m, collision=self.godot is None)
+        cube = add_red_cube(active_scene.target_center, active_scene.target_size_m, collision=self.godot is None)
         add_environment_buildings()
         if self.godot:
             self.godot.open()
@@ -101,7 +106,7 @@ class StrikeSimulation:
         writer = None
         attempt_number = 0
         attempt_video, attempt_plot, attempt_csv, attempt_summary = video, plot, csv, summary
-        plot_handle = start_plot_process(config, self.scene, self.scenario_name, plot) if gui or show_plots or interactive else None
+        plot_handle = start_plot_process(config, active_scene, self.scenario_name, plot) if gui or show_plots or interactive else None
         plot_process, plot_sender = plot_handle if plot_handle else (None, None)
         next_plot_emit = time.perf_counter()
         controls: SimulationControls | None = SimulationControls() if interactive else None
@@ -129,7 +134,7 @@ class StrikeSimulation:
                 writer.release()
             if interactive and attempt_number:
                 if attempt_plot:
-                    save_plot(log, config, self.scene, attempt_plot, self.scenario_name)
+                    save_plot(log, config, active_scene, attempt_plot, self.scenario_name)
                 if attempt_csv:
                     save_csv(log, attempt_csv)
                 if attempt_summary:
@@ -137,7 +142,7 @@ class StrikeSimulation:
                         build_summary(
                             log,
                             config,
-                            self.scene,
+                            active_scene,
                             False,
                             command.phase.value,
                             log.time_s[-1] if log.time_s else 0.0,
@@ -155,7 +160,7 @@ class StrikeSimulation:
                 attempt_summary = attempt_dir / summary.name
             writer = self._video_writer(attempt_video, config)
             reset_drone(drone, config.launch_position)
-            p.resetBasePositionAndOrientation(cube, self.scene.target_center, (0, 0, 0, 1))
+            p.resetBasePositionAndOrientation(cube, active_scene.target_center, (0, 0, 0, 1))
             p.resetBaseVelocity(cube, (0, 0, 0), (0, 0, 0))
             engine = PhysicsEngine(model, settings)
             barometer, tracker, guidance = Barometer(config), BboxTtcTracker(config), StrikeGuidance(config)
@@ -172,25 +177,34 @@ class StrikeSimulation:
             simulated_elapsed_s = 0.0
             log = FlightLog()
             if plot_sender:
+                send_plot_message(plot_sender, {"type": "target", "center_m": list(active_scene.target_center)})
                 send_plot_message(plot_sender, {"type": "reset"})
             if self.godot:
                 self.godot.clear_collision_events()
                 self.godot.clear_control_events()
                 target_position, target_orientation = p.getBasePositionAndOrientation(cube)
-                self.godot.publish_pose(config.launch_position, (0, 0, 0, 1), target_position, target_orientation, reset=True, overlay={"bbox": None, "rtf": current_rtf(), "running_time_s": running_time_seconds()})
+                self.godot.publish_pose(config.launch_position, (0, 0, 0, 1), target_position, target_orientation, reset=True, overlay={"bbox": None, "rtf": current_rtf(), "running_time_s": running_time_seconds()}, target_control={"distance_m": active_target_distance_m})
 
         reset_attempt()
 
         def finish(success: bool, phase: str, now_s: float, abort_reason: str | None = None) -> StrikeResult:
             if attempt_plot:
-                save_plot(log, config, self.scene, attempt_plot, self.scenario_name)
+                save_plot(log, config, active_scene, attempt_plot, self.scenario_name)
             if attempt_csv:
                 save_csv(log, attempt_csv)
             result = StrikeResult(success, phase, now_s, impact_speed, attempt_video, attempt_plot, attempt_csv, attempt_summary)
-            summary_data = build_summary(log, config, self.scene, success, phase, now_s, {"video": attempt_video, "plot": attempt_plot, "csv": attempt_csv, "summary": attempt_summary}, abort_reason)
+            summary_data = build_summary(log, config, active_scene, success, phase, now_s, {"video": attempt_video, "plot": attempt_plot, "csv": attempt_csv, "summary": attempt_summary}, abort_reason)
             if attempt_summary:
                 save_summary(summary_data, attempt_summary)
             self._print_summary(result, summary_data)
+            return result
+
+        def finish_attempt(success: bool, phase: str, now_s: float, abort_reason: str | None = None) -> StrikeResult | None:
+            """Finish one interactive attempt, or return its result to the caller."""
+            result = finish(success, phase, now_s, abort_reason)
+            if controls:
+                controls.stop()
+                return None
             return result
 
         def finish_if_disconnected(now_s: float) -> StrikeResult | None:
@@ -201,21 +215,40 @@ class StrikeSimulation:
 
         def poll_control() -> None:
             """Apply the newest Godot toolbar command to the local state."""
-            nonlocal rtf_started
+            nonlocal rtf_started, active_scene, active_target_distance_m
             if not controls or not self.godot:
                 return
-            action = self.godot.read_control_event()
-            if action == "start":
+            event = self.godot.read_control_event()
+            if not event:
+                return
+            action = event["action"]
+            selected = event.get("target_distance_m")
+            if action == "reset":
+                try:
+                    selected = float(selected)
+                except (TypeError, ValueError):
+                    selected = None
+                if selected in TARGET_DISTANCE_PRESETS_M:
+                    active_target_distance_m = selected
+                    active_scene = replace(self.scene, target_center=(config.launch_position[0] + selected, self.scene.target_center[1], self.scene.target_center[2]))
+                controls.request_reset()
+            elif action == "start":
                 if not controls.running:
                     rtf_started = time.perf_counter()
                 controls.start()
-            elif action == "reset":
-                controls.request_reset()
 
         try:
             step = 0
             next_deadline = time.perf_counter()
-            while step < round(max_seconds / time_step):
+            max_steps = round(max_seconds / time_step)
+            while step < max_steps or controls:
+                if step >= max_steps:
+                    print(f"Strike timed out in {command.phase.value} phase")
+                    result = finish_attempt(False, command.phase.value, max_seconds)
+                    if result is not None:
+                        return result
+                    step = 0
+                    continue
                 if controls:
                     while not controls.running:
                         if controls.exit_requested:
@@ -319,17 +352,25 @@ class StrikeSimulation:
                             # The held terminal command exceeded its predicted
                             # TTC window without contacting the cube.
                             print("Commit deadline expired without contact")
-                            return finish(False, command.phase.value, now_s)
+                            result = finish_attempt(False, command.phase.value, now_s)
+                            if result is not None:
+                                return result
+                            step = 0
+                            continue
                         if command.phase == FlightPhase.ABORT:
                             # Guidance has already neutralized its pitch request;
                             # stop before applying another flight-control cycle.
                             last_height = tracker.last_observation.box[3] if tracker.last_observation else 0
-                            return finish(
+                            result = finish_attempt(
                                 False,
                                 command.phase.value,
                                 now_s,
                                 f"target lost before commit (last bbox height {last_height:g} px)",
                             )
+                            if result is not None:
+                                return result
+                            step = 0
+                            continue
                         # pitch_target_rad is a high-level attitude request.
                         # The attitude controller compares it with the IMU attitude and
                         # returns the body torque needed by the motor mixer.
@@ -368,7 +409,11 @@ class StrikeSimulation:
                     if plot_sender:
                         send_plot_message(plot_sender, {"type": "collision", "time_s": now_s})
                 elif stop_at_s is None and collision_kind == "obstacle":
-                    return finish(False, command.phase.value, now_s, "Godot obstacle collision")
+                    result = finish_attempt(False, command.phase.value, now_s, "Godot obstacle collision")
+                    if result is not None:
+                        return result
+                    step = 0
+                    continue
                 if plot_sender and time.perf_counter() >= next_plot_emit:
                     sample = latest_sample(log)
                     if sample:
@@ -379,7 +424,11 @@ class StrikeSimulation:
                     # impact speed as telemetry instead of rejecting a valid
                     # strike because the simulated vehicle model is tuned
                     # differently from a real airframe.
-                    return finish(True, "post-impact", now_s)
+                    result = finish_attempt(True, "post-impact", now_s)
+                    if result is not None:
+                        return result
+                    step = 0
+                    continue
 
                 if show_frame:
                     if frame is not None:

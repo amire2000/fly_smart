@@ -140,6 +140,7 @@ class TelemetryPlot:
     pitch_axis: object
     growth_axis: object
     barometer_axis: object
+    target_marker: object
     lines: tuple[object, ...]
     phase_axes: tuple[object, ...]
     phase_artists: list[object] = field(default_factory=list)
@@ -162,7 +163,7 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
 
     path_line, = path_axis.plot([], [], color="#16a34a", label="drone path")
     tracking_path_line, = path_axis.plot([], [], color="#2563eb", linewidth=2.5, label="tracking segment")
-    path_axis.scatter((scene.target_center[0],), (scene.target_center[2],), color="#dc2626", label="scene target")
+    target_marker = path_axis.scatter((scene.target_center[0],), (scene.target_center[2],), color="#dc2626", label="scene target")
     path_axis.set(xlabel="world x (m)", ylabel="world z / altitude (m)", title="Measured diagonal path (x-z)")
     path_axis.grid(alpha=0.25)
     path_axis.legend()
@@ -209,6 +210,7 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
         pitch_axis,
         growth_axis,
         barometer_axis,
+        target_marker,
         (vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, command_vx_line, command_vz_line, pid_vz_target_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_altitude_line, filtered_altitude_line, true_altitude_line),
         (velocity_axis, guidance_axis, growth_axis, barometer_axis),
         collision_axes=(velocity_axis, trajectory_axis, guidance_axis, growth_axis, barometer_axis),

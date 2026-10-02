@@ -31,6 +31,20 @@ def test_godot_pose_packet_carries_overlay_payload():
         receiver.close()
 
 
+def test_godot_control_event_preserves_target_distance():
+    bridge = GodotBridge(event_port=0, control_port=0)
+    sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sender.sendto(
+            json.dumps({"event": "simulation_control", "action": "reset", "target_distance_m": 60}).encode(),
+            ("127.0.0.1", bridge._control_socket.getsockname()[1]),
+        )
+        assert bridge.read_control_event() == {"action": "reset", "target_distance_m": 60}
+    finally:
+        sender.close()
+        bridge.close()
+
+
 def test_real_time_factor_uses_simulated_over_wall_time():
     assert real_time_factor(10.0, 10.0) == 1.0
     assert real_time_factor(20.0, 10.0) == 2.0
