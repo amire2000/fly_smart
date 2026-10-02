@@ -28,3 +28,4 @@ for work that has not been committed yet.
 | [max-descent-rate-5_5.md](max-descent-rate-5_5.md) | Raise the shared maximum descent-rate limit to 5.5 m/s. | `pending` |
 | [vscode-godot-task.md](vscode-godot-task.md) | VS Code tasks for Godot, Python, and the compound launcher. | `e208f57` |
 | [config-sensor-ownership.md](config-sensor-ownership.md) | Move raw barometer and IMU YAML settings under `simulation.sensors`. | `pending` |
+| [red-target-tracker-package.md](red-target-tracker-package.md) | Move the reusable red-target detector under `fly_smart.trackers`. | `pending` |

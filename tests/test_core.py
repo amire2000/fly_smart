@@ -4,7 +4,8 @@ from math import degrees
 
 from fly_smart.guidance import FlightPhase, GuidanceInput, StrikeGuidance, VerticalControlMode
 from fly_smart.mission import MissionConfig
-from fly_smart.red_target_detector import detect_red_box
+from fly_smart.red_target_detector import detect_red_box as legacy_detect_red_box
+from fly_smart.trackers.red_target_detector import detect_red_box
 from fly_smart.sensing import BarometerReading
 from fly_smart.ttc import BboxTtcTracker, TtcObservation
 from fly_smart.trajectory import TtcDescentPlanner
@@ -12,6 +13,7 @@ from fly_smart.trajectory import TrajectoryCommand
 
 
 def test_core_guidance_and_vision_do_not_need_simulation():
+    assert legacy_detect_red_box is detect_red_box
     config = MissionConfig()
     tracker = BboxTtcTracker(config)
     assert tracker.update((0, 0, 20, 20), 0.0) is None

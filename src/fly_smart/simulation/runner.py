@@ -15,7 +15,7 @@ from .pybullet_utils import create_world, draw_force_vectors, reset_drone
 from .gui_helper import SimulationControls
 from .forward_camera import add_environment_buildings, add_red_cube, forward_rgb
 from .godot_bridge import GodotBridge
-from ..red_target_detector import detect_red_box
+from ..trackers.red_target_detector import detect_red_box
 
 from .config import SceneConfig, StrikeConfig
 from ..camera_geometry import bbox_alignment_angles

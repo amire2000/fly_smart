@@ -134,7 +134,7 @@ fly_smart/
 ├── ttc.py          BboxTtcTracker: bbox scale growth to TTC
 ├── trajectory.py   TtcDescentPlanner: TTC + altitude to vx/vz target
 ├── guidance.py     StrikeGuidance: takeoff, track, commit, abort
-├── red_target_detector.py RGB frame to target bounding box
+├── trackers/red_target_detector.py RGB frame to target bounding box
 └── simulation/     PyBullet, Godot, synthetic sensors, telemetry, and CLI
 ```
 
