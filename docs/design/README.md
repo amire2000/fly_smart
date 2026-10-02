@@ -22,5 +22,7 @@ for work that has not been committed yet.
 | [ttc-feedforward-descent.md](ttc-feedforward-descent.md) | Feed-forward descent behavior when TTC is unavailable. | `69fc584` |
 | [ttc-unavailable-pitch-boost.md](ttc-unavailable-pitch-boost.md) | Default 5° pitch boost while a visible target lacks valid TTC. | `pending` |
 | [ttc-trust-gate-and-descent-cap.md](ttc-trust-gate-and-descent-cap.md) | Ignore long TTC estimates and bound altitude-error descent correction. | `pending` |
+| [ttc-seconds-plot.md](ttc-seconds-plot.md) | Display raw and filtered TTC estimates in seconds with the activation gate. | `pending` |
+| [bbox-center-alignment-plot.md](bbox-center-alignment-plot.md) | Plot bbox-center pixel errors and calibrated angular offsets. | `pending` |
 | [max-descent-rate-5_5.md](max-descent-rate-5_5.md) | Raise the shared maximum descent-rate limit to 5.5 m/s. | `pending` |
 | [vscode-godot-task.md](vscode-godot-task.md) | VS Code tasks for Godot, Python, and the compound launcher. | `e208f57` |

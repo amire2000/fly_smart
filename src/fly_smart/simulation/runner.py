@@ -406,7 +406,7 @@ class StrikeSimulation:
                 if stop_at_s is None:
                     # Record the collision sample, then freeze telemetry while
                     # passive post-impact physics continues for the video.
-                    log.append(now_s, position, velocity, command, pitch_rad, pitch_torque, observation, flight_step, baro)
+                    log.append(now_s, position, velocity, command, pitch_rad, pitch_torque, observation, flight_step, baro, config.camera_width_px, config.camera_height_px)
 
                 collision_kind = self.godot.read_collision_event() if self.godot else ("target" if p.getContactPoints(drone, cube) else None)
                 if stop_at_s is None and collision_kind == "target":
