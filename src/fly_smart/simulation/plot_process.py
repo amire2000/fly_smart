@@ -13,7 +13,8 @@ from .telemetry import FlightLog, append_telemetry_sample, make_plot, move_plot_
 
 
 PLOT_PORT = 9103
-PLOT_HZ = 5.0
+PLOT_HZ = 3.0
+PLOT_MAX_POINTS = 1500
 
 
 def start_plot_process(config: StrikeConfig, scene: SceneConfig, scenario_name: str, output: Path | None) -> tuple[mp.Process, socket.socket] | None:
@@ -52,6 +53,9 @@ def run_plot_process(config: StrikeConfig, scene: SceneConfig, scenario_name: st
             move_plot_window(plot, config.plot_window_position_px)
         log = FlightLog()
         next_refresh = time.monotonic()
+        next_rescale = next_refresh
+        pending_sample: dict[str, object] | None = None
+        dirty = False
         running = True
         while running:
             while True:
@@ -67,25 +71,37 @@ def run_plot_process(config: StrikeConfig, scene: SceneConfig, scenario_name: st
                     continue
                 kind = message.get("type")
                 if kind == "telemetry_sample":
-                    append_telemetry_sample(log, message)
+                    pending_sample = message
+                    dirty = True
                 elif kind == "target":
                     center = message.get("center_m")
                     if isinstance(center, list) and len(center) == 3:
                         plot.target_marker.set_offsets([[float(center[0]), float(center[2])]])
+                        dirty = True
                 elif kind == "reset":
                     log = FlightLog()
+                    pending_sample = None
+                    dirty = True
                 elif kind == "collision":
                     log.collision_time_s = float(message["time_s"])
+                    dirty = True
                 elif kind == "close":
                     running = False
                     break
             now = time.monotonic()
-            if now >= next_refresh:
-                refresh_plot(plot, log)
+            if pending_sample is not None and now >= next_refresh:
+                append_telemetry_sample(log, pending_sample)
+                pending_sample = None
+            if dirty and now >= next_refresh:
+                should_rescale = now >= next_rescale
+                refresh_plot(plot, log, autoscale=should_rescale, max_points=PLOT_MAX_POINTS)
                 next_refresh = now + 1.0 / PLOT_HZ
-            # Keep Matplotlib responsive without spinning a CPU core while
-            # waiting for the next telemetry refresh.
-            plt.pause(0.02)
+                if should_rescale:
+                    next_rescale = now + 1.0
+                dirty = False
+            # Keep Matplotlib responsive without polling/redrawing at the
+            # telemetry rate while waiting for the next display refresh.
+            plt.pause(0.10)
         plt.close(plot.figure)
     except OSError:
         return

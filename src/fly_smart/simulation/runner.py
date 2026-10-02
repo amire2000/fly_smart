@@ -108,7 +108,7 @@ class StrikeSimulation:
         writer = None
         attempt_number = 0
         attempt_video, attempt_plot, attempt_csv, attempt_summary = video, plot, csv, summary
-        plot_handle = start_plot_process(config, active_scene, self.scenario_name, plot) if gui or show_plots or interactive else None
+        plot_handle = start_plot_process(config, active_scene, self.scenario_name, plot) if show_plots or interactive else None
         plot_process, plot_sender = plot_handle if plot_handle else (None, None)
         next_plot_emit = time.perf_counter()
         controls: SimulationControls | None = SimulationControls() if interactive else None

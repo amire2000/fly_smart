@@ -25,6 +25,11 @@ Plotting is display-only: a missing or slow child never blocks physics, and
 closing the plot does not stop the simulation. Final CSV/PNG generation stays
 in the parent process after the run.
 
+The live plot is opt-in (`--show-plots` or interactive mode). It refreshes at
+about 3 Hz, coalesces queued telemetry to the newest sample, renders a bounded
+recent history, and caches phase/collision artists. The parent retains the
+complete log, so display throttling never removes data from final artifacts.
+
 The grouped simulation configuration is passed through Python's spawn pickle
 boundary; its compatibility attribute lookup must tolerate fields being
 restored after object construction.

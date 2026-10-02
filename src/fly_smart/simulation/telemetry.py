@@ -189,6 +189,7 @@ class TelemetryPlot:
     phase_artists: list[object] = field(default_factory=list)
     collision_axes: tuple[object, ...] = ()
     collision_artists: list[object] = field(default_factory=list)
+    phase_signature: object = None
 
 
 def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "default") -> TelemetryPlot:
@@ -306,6 +307,10 @@ def _phase_intervals(log: FlightLog) -> list[tuple[str, float, float]]:
 
 def _refresh_phase_backgrounds(plot: TelemetryPlot, log: FlightLog) -> None:
     """Shade the tracking interval and keep old live-plot patches bounded."""
+    signature = (tuple(log.phase[-20:]), log.collision_time_s)
+    if signature == plot.phase_signature:
+        return
+    plot.phase_signature = signature
     for artist in plot.phase_artists:
         artist.remove()
     plot.phase_artists.clear()
@@ -328,44 +333,52 @@ def _refresh_phase_backgrounds(plot: TelemetryPlot, log: FlightLog) -> None:
             plot.collision_artists.append(axis.axvline(log.collision_time_s, color="#b45309", linestyle="--", linewidth=1.2, label="collision"))
 
 
-def refresh_plot(plot: TelemetryPlot, log: FlightLog) -> None:
+def refresh_plot(plot: TelemetryPlot, log: FlightLog, autoscale: bool = True, max_points: int | None = None) -> None:
+    """Update the figure, optionally limiting rendered history and rescaling."""
     vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, command_vx_line, command_vz_line, pid_vz_target_line, camera_dy_correction_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line = plot.lines
-    vx_line.set_data(log.time_s, log.vx_mps)
-    velocity_command_line.set_data(log.time_s, log.command_vx_mps)
-    vz_line.set_data(log.time_s, log.vz_mps)
-    path_line.set_data(log.x_m, log.z_m)
+    start = max(0, len(log.time_s) - max_points) if max_points else 0
+    times = log.time_s[start:]
+    phases = log.phase[start:]
+    def recent(values: list[object]) -> list[object]:
+        return values[start:]
+
+    vx_line.set_data(times, recent(log.vx_mps))
+    velocity_command_line.set_data(times, recent(log.command_vx_mps))
+    vz_line.set_data(times, recent(log.vz_mps))
+    path_line.set_data(recent(log.x_m), recent(log.z_m))
     tracking_path_line.set_data(
-        [x if phase == "track" and (log.collision_time_s is None or time <= log.collision_time_s) else float("nan") for x, phase, time in zip(log.x_m, log.phase, log.time_s)],
-        [z if phase == "track" and (log.collision_time_s is None or time <= log.collision_time_s) else float("nan") for z, phase, time in zip(log.z_m, log.phase, log.time_s)],
+        [x if phase == "track" and (log.collision_time_s is None or time <= log.collision_time_s) else float("nan") for x, phase, time in zip(recent(log.x_m), phases, times)],
+        [z if phase == "track" and (log.collision_time_s is None or time <= log.collision_time_s) else float("nan") for z, phase, time in zip(recent(log.z_m), phases, times)],
     )
-    command_vx_line.set_data(log.time_s, log.command_vx_mps)
-    command_vz_line.set_data(log.time_s, log.command_vz_mps)
-    pid_vz_target_line.set_data(log.time_s, log.pid_vz_target_mps)
-    command_altitude_line.set_data(log.time_s, log.command_altitude_m)
-    thrust_line.set_data(log.time_s, log.command_thrust_n)
-    pitch_line.set_data(log.time_s, log.command_pitch_deg)
-    measured_pitch_line.set_data(log.time_s, log.measured_pitch_deg)
-    tracking = [phase == "track" and (log.collision_time_s is None or time <= log.collision_time_s) for phase, time in zip(log.phase, log.time_s)]
+    command_vx_line.set_data(times, recent(log.command_vx_mps))
+    command_vz_line.set_data(times, recent(log.command_vz_mps))
+    pid_vz_target_line.set_data(times, recent(log.pid_vz_target_mps))
+    command_altitude_line.set_data(times, recent(log.command_altitude_m))
+    thrust_line.set_data(times, recent(log.command_thrust_n))
+    pitch_line.set_data(times, recent(log.command_pitch_deg))
+    measured_pitch_line.set_data(times, recent(log.measured_pitch_deg))
+    tracking = [phase == "track" and (log.collision_time_s is None or time <= log.collision_time_s) for phase, time in zip(phases, times)]
     def tracking_values(values: list[float]) -> list[float]:
         return [value if active and isfinite(value) else float("nan") for value, active in zip(values, tracking)]
 
-    camera_dy_correction_line.set_data(log.time_s, tracking_values(log.camera_dy_correction_mps))
-    raw_growth_line.set_data(log.time_s, tracking_values(log.raw_bbox_growth_px_s))
-    filtered_growth_line.set_data(log.time_s, tracking_values(log.bbox_growth_px_s))
-    raw_ttc_line.set_data(log.time_s, tracking_values(log.raw_ttc_s))
-    filtered_ttc_line.set_data(log.time_s, tracking_values(log.ttc_s))
-    dx_line.set_data(log.time_s, tracking_values(log.bbox_center_dx_px))
-    dy_line.set_data(log.time_s, tracking_values(log.bbox_center_dy_px))
-    dx_angle_line.set_data(log.time_s, tracking_values(log.bbox_center_dx_deg))
-    dy_angle_line.set_data(log.time_s, tracking_values(log.bbox_center_dy_deg))
-    compensated_dy_line.set_data(log.time_s, tracking_values(log.pitch_compensated_dy_deg))
-    raw_altitude_line.set_data(log.time_s, log.barometer_raw_altitude_m)
-    filtered_altitude_line.set_data(log.time_s, log.barometer_filtered_altitude_m)
-    true_altitude_line.set_data(log.time_s, log.z_m)
+    camera_dy_correction_line.set_data(times, tracking_values(recent(log.camera_dy_correction_mps)))
+    raw_growth_line.set_data(times, tracking_values(recent(log.raw_bbox_growth_px_s)))
+    filtered_growth_line.set_data(times, tracking_values(recent(log.bbox_growth_px_s)))
+    raw_ttc_line.set_data(times, tracking_values(recent(log.raw_ttc_s)))
+    filtered_ttc_line.set_data(times, tracking_values(recent(log.ttc_s)))
+    dx_line.set_data(times, tracking_values(recent(log.bbox_center_dx_px)))
+    dy_line.set_data(times, tracking_values(recent(log.bbox_center_dy_px)))
+    dx_angle_line.set_data(times, tracking_values(recent(log.bbox_center_dx_deg)))
+    dy_angle_line.set_data(times, tracking_values(recent(log.bbox_center_dy_deg)))
+    compensated_dy_line.set_data(times, tracking_values(recent(log.pitch_compensated_dy_deg)))
+    raw_altitude_line.set_data(times, recent(log.barometer_raw_altitude_m))
+    filtered_altitude_line.set_data(times, recent(log.barometer_filtered_altitude_m))
+    true_altitude_line.set_data(times, recent(log.z_m))
     _refresh_phase_backgrounds(plot, log)
-    for axis in (plot.velocity_axis, plot.path_axis, plot.trajectory_axis, plot.trajectory_altitude_axis, plot.guidance_axis, plot.pitch_axis, plot.growth_axis, plot.ttc_axis, plot.alignment_axis, plot.alignment_angle_axis, plot.barometer_axis):
-        axis.relim()
-        axis.autoscale_view()
+    if autoscale:
+        for axis in (plot.velocity_axis, plot.path_axis, plot.trajectory_axis, plot.trajectory_altitude_axis, plot.guidance_axis, plot.pitch_axis, plot.growth_axis, plot.ttc_axis, plot.alignment_axis, plot.alignment_angle_axis, plot.barometer_axis):
+            axis.relim()
+            axis.autoscale_view()
     plot.figure.canvas.draw_idle()
     plot.figure.canvas.flush_events()
 

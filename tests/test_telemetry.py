@@ -73,3 +73,20 @@ def test_ttc_plot_shows_raw_filtered_seconds_and_activation_gate():
     assert list(plot.lines[18].get_ydata()) == [-235.0, -235.0]
     assert list(plot.lines[21].get_ydata()) == list(log.pitch_compensated_dy_deg)
     plt.close(plot.figure)
+
+
+def test_live_plot_can_render_bounded_recent_history():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    config = StrikeConfig()
+    plot = make_plot(config, config.simulation)
+    log = FlightLog()
+    command = GuidanceCommand(FlightPhase.TRACK, 1.0, 0.0, TrajectoryCommand(13.0, -1.5, 15.0))
+    for time_s in range(5):
+        log.append(float(time_s), (float(time_s), 0.0, 15.0), (1.0, 0.0, 0.0), command)
+    refresh_plot(plot, log, max_points=2)
+    assert len(plot.lines[0].get_xdata()) == 2
+    assert list(plot.lines[0].get_xdata()) == [3.0, 4.0]
+    plt.close(plot.figure)
