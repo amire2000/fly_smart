@@ -32,6 +32,8 @@ class FlightLog:
     command_altitude_m: list[float] = field(default_factory=list)
     vertical_control_mode: list[str] = field(default_factory=list)
     camera_dy_correction_mps: list[float] = field(default_factory=list)
+    path_slope_target_m_per_m: list[float] = field(default_factory=list)
+    measured_path_slope_m_per_m: list[float] = field(default_factory=list)
     command_thrust_n: list[float] = field(default_factory=list)
     command_pitch_deg: list[float] = field(default_factory=list)
     pitch_error_deg: list[float] = field(default_factory=list)
@@ -75,6 +77,8 @@ class FlightLog:
         self.command_altitude_m.append(trajectory.altitude_target_m if trajectory else float("nan"))
         self.vertical_control_mode.append(command.vertical_control_mode.value)
         self.camera_dy_correction_mps.append(command.camera_dy_correction_mps)
+        self.path_slope_target_m_per_m.append(command.path_slope_target_m_per_m if command.path_slope_target_m_per_m is not None else float("nan"))
+        self.measured_path_slope_m_per_m.append(velocity[2] / velocity[0] if abs(velocity[0]) >= 0.1 else float("nan"))
         self.command_thrust_n.append(command.thrust_n)
         self.command_pitch_deg.append(degrees(command.pitch_target_rad))
         self.phase.append(command.phase.value)
@@ -138,6 +142,8 @@ def append_telemetry_sample(log: FlightLog, sample: dict[str, object]) -> None:
     log.command_altitude_m.append(number("command_altitude"))
     log.vertical_control_mode.append(str(sample.get("vertical_control_mode", "")))
     log.camera_dy_correction_mps.append(number("camera_dy_correction"))
+    log.path_slope_target_m_per_m.append(number("path_slope_target"))
+    log.measured_path_slope_m_per_m.append(number("measured_path_slope"))
     log.command_thrust_n.append(number("thrust"))
     log.command_pitch_deg.append(number("pitch"))
     log.measured_pitch_deg.append(number("measured_pitch"))
@@ -168,6 +174,7 @@ class TelemetryPlot:
     figure: object
     velocity_axis: object
     path_axis: object
+    path_slope_axis: object
     trajectory_axis: object
     trajectory_altitude_axis: object
     guidance_axis: object
@@ -207,10 +214,14 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
 
     path_line, = path_axis.plot([], [], color="#16a34a", label="drone path")
     tracking_path_line, = path_axis.plot([], [], color="#2563eb", linewidth=2.5, label="tracking segment")
+    path_slope_axis = path_axis.twinx()
+    target_slope_line, = path_slope_axis.plot([], [], "--", color="#f97316", label="target slope")
+    measured_slope_line, = path_slope_axis.plot([], [], ":", color="#7c3aed", label="measured slope")
     target_marker = path_axis.scatter((scene.target_center[0],), (scene.target_center[2],), color="#dc2626", label="scene target")
     path_axis.set(xlabel="world x (m)", ylabel="world z / altitude (m)", title="Measured diagonal path (x-z)")
+    path_slope_axis.set_ylabel("path slope dz/dx (m/m)")
     path_axis.grid(alpha=0.25)
-    path_axis.legend()
+    path_axis.legend((path_line, tracking_path_line, target_slope_line, measured_slope_line), ("drone path", "tracking segment", "target slope", "measured slope"), loc="upper left")
 
     command_vx_line, = trajectory_axis.plot([], [], label="command vx", color="#2563eb")
     command_vz_line, = trajectory_axis.plot([], [], label="TTC vz", color="#dc2626")
@@ -269,6 +280,7 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
         figure,
         velocity_axis,
         path_axis,
+        path_slope_axis,
         trajectory_axis,
         trajectory_altitude_axis,
         guidance_axis,
@@ -285,7 +297,7 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
         ttc_gate_line,
         alignment_zero_px,
         alignment_zero_angle,
-        (vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, command_vx_line, command_vz_line, pid_vz_target_line, camera_dy_correction_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line),
+        (vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, target_slope_line, measured_slope_line, command_vx_line, command_vz_line, pid_vz_target_line, camera_dy_correction_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line),
         (velocity_axis, guidance_axis, growth_axis, ttc_axis, alignment_axis, alignment_angle_axis, barometer_axis),
         collision_axes=(velocity_axis, trajectory_axis, guidance_axis, growth_axis, ttc_axis, alignment_axis, alignment_angle_axis, barometer_axis),
     )
@@ -335,7 +347,7 @@ def _refresh_phase_backgrounds(plot: TelemetryPlot, log: FlightLog) -> None:
 
 def refresh_plot(plot: TelemetryPlot, log: FlightLog, autoscale: bool = True, max_points: int | None = None) -> None:
     """Update the figure, optionally limiting rendered history and rescaling."""
-    vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, command_vx_line, command_vz_line, pid_vz_target_line, camera_dy_correction_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line = plot.lines
+    vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, target_slope_line, measured_slope_line, command_vx_line, command_vz_line, pid_vz_target_line, camera_dy_correction_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line = plot.lines
     start = max(0, len(log.time_s) - max_points) if max_points else 0
     times = log.time_s[start:]
     phases = log.phase[start:]
@@ -346,6 +358,8 @@ def refresh_plot(plot: TelemetryPlot, log: FlightLog, autoscale: bool = True, ma
     velocity_command_line.set_data(times, recent(log.command_vx_mps))
     vz_line.set_data(times, recent(log.vz_mps))
     path_line.set_data(recent(log.x_m), recent(log.z_m))
+    target_slope_line.set_data(recent(log.x_m), recent(log.path_slope_target_m_per_m))
+    measured_slope_line.set_data(recent(log.x_m), recent(log.measured_path_slope_m_per_m))
     tracking_path_line.set_data(
         [x if phase == "track" and (log.collision_time_s is None or time <= log.collision_time_s) else float("nan") for x, phase, time in zip(recent(log.x_m), phases, times)],
         [z if phase == "track" and (log.collision_time_s is None or time <= log.collision_time_s) else float("nan") for z, phase, time in zip(recent(log.z_m), phases, times)],
@@ -376,7 +390,7 @@ def refresh_plot(plot: TelemetryPlot, log: FlightLog, autoscale: bool = True, ma
     true_altitude_line.set_data(times, recent(log.z_m))
     _refresh_phase_backgrounds(plot, log)
     if autoscale:
-        for axis in (plot.velocity_axis, plot.path_axis, plot.trajectory_axis, plot.trajectory_altitude_axis, plot.guidance_axis, plot.pitch_axis, plot.growth_axis, plot.ttc_axis, plot.alignment_axis, plot.alignment_angle_axis, plot.barometer_axis):
+        for axis in (plot.velocity_axis, plot.path_axis, plot.path_slope_axis, plot.trajectory_axis, plot.trajectory_altitude_axis, plot.guidance_axis, plot.pitch_axis, plot.growth_axis, plot.ttc_axis, plot.alignment_axis, plot.alignment_angle_axis, plot.barometer_axis):
             axis.relim()
             axis.autoscale_view()
     plot.figure.canvas.draw_idle()
@@ -407,7 +421,7 @@ def save_csv(log: FlightLog, output: Path) -> None:
     """Write measured state and every high-level command for offline tuning."""
     output.parent.mkdir(parents=True, exist_ok=True)
     fields = ("time_s", "phase", "x_m", "y_m", "z_m", "vx_mps", "vz_mps", "barometer_raw_altitude_m", "barometer_filtered_altitude_m", "barometer_filtered_vertical_velocity_mps", "command_vx_mps",
-              "command_vz_mps", "pid_vz_target_mps", "command_altitude_m", "vertical_control_mode", "camera_dy_correction_mps", "command_thrust_n", "command_pitch_deg",
+              "command_vz_mps", "pid_vz_target_mps", "command_altitude_m", "vertical_control_mode", "camera_dy_correction_mps", "path_slope_target_m_per_m", "measured_path_slope_m_per_m", "command_thrust_n", "command_pitch_deg",
               "measured_pitch_deg", "pitch_error_deg", "pitch_torque", "ttc_s", "raw_ttc_s", "bbox_scale_px", "bbox_growth_px_s", "raw_bbox_growth_px_s", "bbox_center_dx_px", "bbox_center_dy_px", "bbox_center_dx_deg", "bbox_center_dy_deg", "pitch_compensated_dy_deg",
               "body_drag_x_n", "body_drag_z_n", "angular_damping_pitch_torque_nm", "gyroscopic_pitch_torque_nm", "ground_effect_max_multiplier")
     with output.open("w", newline="") as stream:

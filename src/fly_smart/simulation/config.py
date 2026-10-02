@@ -95,6 +95,7 @@ class RuntimeConfig:
     ttc_beta: float = 0.05
     min_growth_px_per_s: float = 0.01
     ttc_unavailable_descent_velocity_mps: float = 1.5
+    ttc_unavailable_descent_slope_m_per_m: float = 0.50
     ttc_unavailable_pitch_boost_deg: float = 0.0
     camera_dy_gain_mps_per_deg: float = 0.20
     camera_dy_deadband_deg: float = 1.0

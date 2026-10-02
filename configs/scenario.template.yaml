@@ -72,6 +72,7 @@ runtime:
     beta: 0.05                            # Trust in bbox-scale-rate correction [0..1].
     min_growth_px_per_s: 0.01             # Minimum accepted approach growth [px/s].
     ttc_unavailable_descent_velocity_mps: 1.5  # Initial descent magnitude before TTC is valid; zero disables it.
+    ttc_unavailable_descent_slope_m_per_m: 0.50 # Pre-TTC vertical drop per metre of forward travel.
     ttc_unavailable_pitch_boost_deg: 5.0  # Extra pitch while bbox is visible but TTC is invalid; zero disables it.
     ttc_activation_s: 8.0                 # Trust TTC for final descent only below this value [s].
     camera_dy_gain_mps_per_deg: 0.20      # Vertical-speed correction per compensated camera degree.

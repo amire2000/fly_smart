@@ -42,6 +42,7 @@ runtime:
     alpha: 0.85                         # Trust in each measured bbox scale.
     beta: 0.05                          # Trust in the bbox-scale-rate correction.
     ttc_unavailable_descent_velocity_mps: 1.5  # Start descent before TTC is reliable.
+    ttc_unavailable_descent_slope_m_per_m: 0.50 # Pre-TTC vertical drop per metre of forward travel.
     ttc_unavailable_pitch_boost_deg: 5.0  # Temporarily command up to 25 deg while bbox growth is invalid.
     ttc_activation_s: 8.0                # Trust TTC for final descent only when it is short.
     camera_dy_gain_mps_per_deg: 0.20     # Vertical-speed correction per compensated camera degree.

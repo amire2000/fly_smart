@@ -101,3 +101,23 @@ def test_camera_dy_deadband_and_direction_are_bounded():
     guidance = StrikeGuidance(config)
     assert guidance._camera_dy_correction(config.camera_dy_deadband_deg) == 0.0
     assert guidance._camera_dy_correction(-20.0) == config.camera_dy_max_correction_mps
+
+
+def test_dy_mode_targets_a_forward_speed_proportional_descent():
+    config = MissionConfig()
+    reading = BarometerReading(config.takeoff_altitude_m, 0.0)
+    observation = TtcObservation((0, 0, 30, 30), 30.0, 1.0, 12.0, 1.0, 12.0)
+    guidance = StrikeGuidance(config)
+    guidance.update(GuidanceInput(0.0, reading, observation, observation, True, False))
+    command = guidance.update(GuidanceInput(0.1, reading, observation, observation, True, False, forward_velocity_mps=10.0))
+    assert command.vertical_control_mode == VerticalControlMode.DY
+    assert command.path_slope_target_m_per_m == 0.5
+    assert command.trajectory.vertical_velocity_mps == -5.0
+
+    slow = guidance.update(GuidanceInput(0.2, reading, observation, observation, True, False, forward_velocity_mps=0.0))
+    assert slow.trajectory.vertical_velocity_mps == -config.ttc_unavailable_descent_velocity_mps
+
+    valid = TtcObservation((0, 0, 30, 30), 30.0, 1.0, 6.0, 1.0, 6.0)
+    terminal = guidance.update(GuidanceInput(0.3, reading, valid, valid, True, False, forward_velocity_mps=10.0))
+    assert terminal.vertical_control_mode == VerticalControlMode.TTC
+    assert terminal.path_slope_target_m_per_m is None

@@ -179,6 +179,8 @@ def load_yaml_config(path: Path) -> StrikeConfig:
         runtime = replace(runtime, ttc_beta=_unit_interval(ttc["beta"], "runtime.ttc.beta"))
     if "ttc_unavailable_descent_velocity_mps" in ttc:
         runtime = replace(runtime, ttc_unavailable_descent_velocity_mps=_non_negative(ttc["ttc_unavailable_descent_velocity_mps"], "runtime.ttc.ttc_unavailable_descent_velocity_mps"))
+    if "ttc_unavailable_descent_slope_m_per_m" in ttc:
+        runtime = replace(runtime, ttc_unavailable_descent_slope_m_per_m=_non_negative(ttc["ttc_unavailable_descent_slope_m_per_m"], "runtime.ttc.ttc_unavailable_descent_slope_m_per_m"))
     if "ttc_unavailable_pitch_boost_deg" in ttc:
         runtime = replace(runtime, ttc_unavailable_pitch_boost_deg=_non_negative(ttc["ttc_unavailable_pitch_boost_deg"], "runtime.ttc.ttc_unavailable_pitch_boost_deg"))
     if "ttc_activation_s" in ttc:
@@ -189,7 +191,7 @@ def load_yaml_config(path: Path) -> StrikeConfig:
         runtime = replace(runtime, camera_dy_deadband_deg=_non_negative(ttc["camera_dy_deadband_deg"], "runtime.ttc.camera_dy_deadband_deg"))
     if "camera_dy_max_correction_mps" in ttc:
         runtime = replace(runtime, camera_dy_max_correction_mps=_non_negative(ttc["camera_dy_max_correction_mps"], "runtime.ttc.camera_dy_max_correction_mps"))
-    runtime = _merge(runtime, {name: value for name, value in ttc.items() if name not in {"alpha", "beta", "ttc_unavailable_descent_velocity_mps", "ttc_unavailable_pitch_boost_deg", "ttc_activation_s", "camera_dy_gain_mps_per_deg", "camera_dy_deadband_deg", "camera_dy_max_correction_mps"}}, ("min_ttc_s", "commit_box_height_fraction", "min_growth_px_per_s"), "runtime.ttc")
+    runtime = _merge(runtime, {name: value for name, value in ttc.items() if name not in {"alpha", "beta", "ttc_unavailable_descent_velocity_mps", "ttc_unavailable_descent_slope_m_per_m", "ttc_unavailable_pitch_boost_deg", "ttc_activation_s", "camera_dy_gain_mps_per_deg", "camera_dy_deadband_deg", "camera_dy_max_correction_mps"}}, ("min_ttc_s", "commit_box_height_fraction", "min_growth_px_per_s"), "runtime.ttc")
     if "sample_hz" in barometer:
         runtime = replace(runtime, barometer_sample_hz=_positive(barometer["sample_hz"], "runtime.sensors.barometer.sample_hz"))
     if "altitude_noise_sigma_m" in barometer:

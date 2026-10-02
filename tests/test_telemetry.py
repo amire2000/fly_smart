@@ -65,13 +65,13 @@ def test_ttc_plot_shows_raw_filtered_seconds_and_activation_gate():
         log.append(time_s, (time_s, 0.0, 15.0), (1.0, 0.0, 0.0), command, observation=TtcObservation((0, 0, 10, 10), 10.0, 1.0, raw_ttc_s, 1.0, ttc_s))
     refresh_plot(plot, log)
     assert plot.ttc_axis.get_ylabel() == "TTC (s)"
-    assert list(plot.lines[15].get_ydata()) == [12.0, 7.0]
-    assert list(plot.lines[16].get_ydata()) == [11.0, 6.5]
+    assert list(plot.lines[17].get_ydata()) == [12.0, 7.0]
+    assert list(plot.lines[18].get_ydata()) == [11.0, 6.5]
     assert plot.ttc_gate_line.get_ydata()[0] == config.ttc_activation_s
     assert plot.alignment_axis.get_ylabel() == "center error (px)"
-    assert list(plot.lines[17].get_ydata()) == [-315.0, -315.0]
-    assert list(plot.lines[18].get_ydata()) == [-235.0, -235.0]
-    assert list(plot.lines[21].get_ydata()) == list(log.pitch_compensated_dy_deg)
+    assert list(plot.lines[19].get_ydata()) == [-315.0, -315.0]
+    assert list(plot.lines[20].get_ydata()) == [-235.0, -235.0]
+    assert list(plot.lines[23].get_ydata()) == list(log.pitch_compensated_dy_deg)
     plt.close(plot.figure)
 
 

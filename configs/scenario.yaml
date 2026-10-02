@@ -37,6 +37,7 @@ runtime:
     nominal_pitch_deg: 20.0      # Initial forward pitch request.
   ttc:
     commit_box_height_fraction: 0.1  # Bbox height fraction that arms commit.
+    ttc_unavailable_descent_slope_m_per_m: 0.50 # Pre-TTC vertical drop per metre of forward travel.
     ttc_unavailable_pitch_boost_deg: 5.0  # Keep a steady slant while target lock has no valid TTC.
     ttc_activation_s: 8.0           # Trust TTC for final descent only when it is short.
     camera_dy_gain_mps_per_deg: 0.20 # Vertical-speed correction per compensated camera degree.

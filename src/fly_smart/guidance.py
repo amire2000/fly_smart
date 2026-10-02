@@ -55,6 +55,7 @@ class GuidanceCommand:
     vertical_velocity_target_mps: float | None = None
     vertical_control_mode: VerticalControlMode = VerticalControlMode.HOLD
     camera_dy_correction_mps: float = 0.0
+    path_slope_target_m_per_m: float | None = None
 
 
 class StrikeGuidance:
@@ -185,6 +186,16 @@ class StrikeGuidance:
         ttc_valid = data.observation is not None and data.observation.ttc_s <= self.config.ttc_activation_s
         mode = VerticalControlMode.TTC if ttc_valid else VerticalControlMode.DY
         trajectory = self.trajectory.command(data.observation.ttc_s if ttc_valid else None, data.barometer.altitude_m)
+        path_slope_target = None
+        if mode == VerticalControlMode.DY:
+            path_slope_target = self.config.ttc_unavailable_descent_slope_m_per_m
+            trajectory = replace(
+                trajectory,
+                vertical_velocity_mps=-max(
+                    self.config.ttc_unavailable_descent_velocity_mps,
+                    path_slope_target * max(0.0, data.forward_velocity_mps),
+                ),
+            )
         camera_correction = self._camera_dy_correction(data.vertical_alignment_error_deg) if mode == VerticalControlMode.DY and data.target_visible else 0.0
         if camera_correction:
             trajectory = replace(trajectory, vertical_velocity_mps=trajectory.vertical_velocity_mps + camera_correction)
@@ -214,6 +225,7 @@ class StrikeGuidance:
             vertical_velocity_target_mps=corrected_vz,
             vertical_control_mode=mode,
             camera_dy_correction_mps=camera_correction,
+            path_slope_target_m_per_m=path_slope_target,
         )
         self.last_command = command
         return command
