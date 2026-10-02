@@ -3,6 +3,7 @@ import socket
 
 from fly_smart.simulation.gui_helper import SimulationControls
 from fly_smart.simulation.godot_bridge import GodotBridge
+from fly_smart.simulation.runner import real_time_factor
 
 
 def test_reset_pauses_and_is_consumed_once():
@@ -26,3 +27,10 @@ def test_godot_pose_packet_carries_overlay_payload():
     finally:
         bridge.close()
         receiver.close()
+
+
+def test_real_time_factor_uses_simulated_over_wall_time():
+    assert real_time_factor(10.0, 10.0) == 1.0
+    assert real_time_factor(20.0, 10.0) == 2.0
+    assert real_time_factor(5.0, 10.0) == 0.5
+    assert real_time_factor(5.0, 0.0) == 0.0

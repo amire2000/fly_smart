@@ -25,6 +25,7 @@ var _collision_socket := PacketPeerUDP.new()
 var _control_socket := PacketPeerUDP.new()
 var _bbox_panel: Panel
 var _telemetry_label: Label
+var _rtf_label: Label
 var _active_slot := 0
 var _sequence := 0
 var _latest_pose: Dictionary = {}
@@ -229,6 +230,21 @@ func _build_cameras() -> void:
 	_telemetry_label.add_theme_constant_override("outline_size", 4)
 	overlay.add_child(_telemetry_label)
 
+	_rtf_label = Label.new()
+	_rtf_label.name = "RealTimeFactor"
+	_rtf_label.text = "RTF: --"
+	_rtf_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_rtf_label.offset_left = -132
+	_rtf_label.offset_top = -42
+	_rtf_label.offset_right = -16
+	_rtf_label.offset_bottom = -14
+	_rtf_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_rtf_label.add_theme_font_size_override("font_size", 18)
+	_rtf_label.add_theme_color_override("font_color", Color.WHITE)
+	_rtf_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_rtf_label.add_theme_constant_override("outline_size", 4)
+	overlay.add_child(_rtf_label)
+
 	var axes := Label.new()
 	axes.name = "WorldAxes"
 	axes.text = "Y ↑\nZ ⊙   X →"
@@ -286,6 +302,7 @@ func _update_fpv_overlay(raw_overlay: Variant) -> void:
 		_bbox_panel.size = Vector2(float(bbox[2]) * 0.75, float(bbox[3]) * 0.75)
 	else:
 		_bbox_panel.visible = false
+	_rtf_label.text = "RTF: %sx" % _format_rtf(overlay)
 	_telemetry_label.text = "phase: %s\npitch: %s deg   thrust: %s N\nscale: %s px   growth: %s px/s\nTTC: %s s\nvx command: %s m/s   vz command: %s m/s" % [
 			str(overlay.get("phase", "takeoff")),
 			_format_overlay_value(overlay.get("pitch_deg")),
@@ -302,6 +319,12 @@ func _format_overlay_value(value: Variant) -> String:
 	if value == null:
 		return "--"
 	return "%.1f" % float(value)
+
+
+func _format_rtf(raw_overlay: Variant) -> String:
+	if not raw_overlay is Dictionary or raw_overlay.get("rtf") == null:
+		return "--"
+	return "%.2f" % float(raw_overlay.get("rtf"))
 
 
 func _add_box(parent: Node, pos: Vector3, size: Vector3, color: Color) -> void:

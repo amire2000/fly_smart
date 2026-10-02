@@ -25,6 +25,12 @@ from .telemetry import FlightLog, build_summary, make_plot, move_plot_window, re
 from ..ttc import BboxTtcTracker, TtcObservation
 from .views import annotate, environment_rgb
 
+
+def real_time_factor(simulated_seconds: float, wall_seconds: float) -> float:
+    """Return simulated time divided by elapsed wall-clock time."""
+    return simulated_seconds / wall_seconds if wall_seconds > 0.0 else 0.0
+
+
 @dataclass(frozen=True)
 class StrikeResult:
     success: bool
@@ -73,6 +79,8 @@ class StrikeSimulation:
         force_lines = [-1, -1, -1, -1]
         renderer = p.ER_BULLET_HARDWARE_OPENGL if gui else p.ER_TINY_RENDERER
         impact_speed, stop_at_s = 0.0, None
+        wall_started = time.perf_counter()
+        simulated_elapsed_s = 0.0
         log = FlightLog()
         writer = None
         attempt_number = 0
@@ -89,6 +97,9 @@ class StrikeSimulation:
             cv2.moveWindow("TTC diagonal strike", *config.opencv_window_position_px)
         if gui:
             p.resetDebugVisualizerCamera(36.0, 48.0, -25.0, (7.0, 0.0, 7.0))
+
+        def current_rtf() -> float:
+            return real_time_factor(simulated_elapsed_s, time.perf_counter() - wall_started)
 
         def reset_attempt() -> None:
             """Restore the complete flight state and publish Godot's initial pose."""
@@ -146,7 +157,7 @@ class StrikeSimulation:
                 self.godot.clear_collision_events()
                 self.godot.clear_control_events()
                 target_position, target_orientation = p.getBasePositionAndOrientation(cube)
-                self.godot.publish_pose(config.launch_position, (0, 0, 0, 1), target_position, target_orientation, reset=True, overlay={"bbox": None})
+                self.godot.publish_pose(config.launch_position, (0, 0, 0, 1), target_position, target_orientation, reset=True, overlay={"bbox": None, "rtf": current_rtf()})
 
         reset_attempt()
 
@@ -243,6 +254,7 @@ class StrikeSimulation:
                                 "ttc_s": observation.ttc_s if observation else None,
                                 "command_vx_mps": trajectory.forward_velocity_mps if trajectory else None,
                                 "command_vz_mps": trajectory.vertical_velocity_mps if trajectory else None,
+                                "rtf": current_rtf(),
                             },
                         )
                     else:
@@ -309,6 +321,7 @@ class StrikeSimulation:
                 pwm = engine.pwm_from_thrust(clamp(collective / 4, 0.0, model.max_thrust_per_motor_n))
                 incoming_velocity = p.getBaseVelocity(drone)[0]
                 flight_step = engine.step(drone, pwm, torque)
+                simulated_elapsed_s += time_step
                 disconnected = finish_if_disconnected(now_s)
                 if disconnected:
                     return disconnected
