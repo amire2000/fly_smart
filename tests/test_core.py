@@ -2,11 +2,11 @@ import numpy as np
 from dataclasses import replace
 from math import degrees
 
-from fly_smart.guidance import FlightPhase, GuidanceInput, StrikeGuidance
+from fly_smart.guidance import FlightPhase, GuidanceInput, StrikeGuidance, VerticalControlMode
 from fly_smart.mission import MissionConfig
 from fly_smart.red_target_detector import detect_red_box
 from fly_smart.sensing import BarometerReading
-from fly_smart.ttc import BboxTtcTracker
+from fly_smart.ttc import BboxTtcTracker, TtcObservation
 from fly_smart.trajectory import TtcDescentPlanner
 from fly_smart.trajectory import TrajectoryCommand
 
@@ -76,3 +76,28 @@ def test_visible_target_without_ttc_gets_only_the_configured_pitch_boost():
     unboosted.update(GuidanceInput(0.0, reading, observation, observation, True, False))
     unavailable = unboosted.update(GuidanceInput(0.1, reading, None, observation, True, False))
     assert degrees(unavailable.pitch_target_rad) == 20.0
+
+
+def test_camera_dy_controls_no_ttc_descent_and_ttc_takes_over():
+    config = MissionConfig()
+    reading = BarometerReading(config.takeoff_altitude_m, 0.0)
+    observation = TtcObservation((0, 0, 30, 30), 30.0, 1.0, 12.0, 1.0, 12.0)
+    guidance = StrikeGuidance(config)
+    guidance.update(GuidanceInput(0.0, reading, observation, observation, True, False))
+
+    dy_command = guidance.update(GuidanceInput(0.1, reading, observation, observation, True, False, vertical_alignment_error_deg=20.0))
+    assert dy_command.vertical_control_mode == VerticalControlMode.DY
+    assert dy_command.camera_dy_correction_mps == -config.camera_dy_max_correction_mps
+    assert dy_command.vertical_velocity_target_mps < -config.ttc_unavailable_descent_velocity_mps
+
+    valid_observation = TtcObservation((0, 0, 30, 30), 30.0, 1.0, 6.0, 1.0, 6.0)
+    ttc_command = guidance.update(GuidanceInput(0.2, reading, valid_observation, valid_observation, True, False, vertical_alignment_error_deg=20.0))
+    assert ttc_command.vertical_control_mode == VerticalControlMode.TTC
+    assert ttc_command.camera_dy_correction_mps == 0.0
+
+
+def test_camera_dy_deadband_and_direction_are_bounded():
+    config = MissionConfig()
+    guidance = StrikeGuidance(config)
+    assert guidance._camera_dy_correction(config.camera_dy_deadband_deg) == 0.0
+    assert guidance._camera_dy_correction(-20.0) == config.camera_dy_max_correction_mps

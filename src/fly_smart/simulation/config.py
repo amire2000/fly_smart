@@ -96,6 +96,9 @@ class RuntimeConfig:
     min_growth_px_per_s: float = 0.01
     ttc_unavailable_descent_velocity_mps: float = 1.5
     ttc_unavailable_pitch_boost_deg: float = 0.0
+    camera_dy_gain_mps_per_deg: float = 0.20
+    camera_dy_deadband_deg: float = 1.0
+    camera_dy_max_correction_mps: float = 2.0
     barometer_sample_hz: float = 40.0
     barometer_noise_sigma_m: float = 0.10
     barometer_bias_m: float = 0.0

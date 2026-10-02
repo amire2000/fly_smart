@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, replace
 from enum import Enum
-from math import cos
+from math import copysign, cos, isfinite
 
 from .common.pid import PID
 
@@ -19,6 +19,16 @@ class FlightPhase(str, Enum):
     ABORT = "abort"
 
 
+class VerticalControlMode(str, Enum):
+    """Source of the active tracking vertical-velocity target."""
+
+    HOLD = "hold"
+    DY = "dy"
+    TTC = "ttc"
+    COMMIT = "commit"
+    ABORT = "abort"
+
+
 @dataclass(frozen=True)
 class GuidanceInput:
     now_s: float
@@ -29,6 +39,7 @@ class GuidanceInput:
     commit_ready: bool
     forward_velocity_mps: float = 0.0
     measured_pitch_rad: float = 0.0
+    vertical_alignment_error_deg: float | None = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +53,8 @@ class GuidanceCommand:
     reset_ttc: bool = False
     commit_expired: bool = False
     vertical_velocity_target_mps: float | None = None
+    vertical_control_mode: VerticalControlMode = VerticalControlMode.HOLD
+    camera_dy_correction_mps: float = 0.0
 
 
 class StrikeGuidance:
@@ -152,6 +165,7 @@ class StrikeGuidance:
                 self.last_command.trajectory,
                 commit_expired=data.now_s > (self.commit_deadline_s or data.now_s),
                 vertical_velocity_target_mps=desired_vz,
+                vertical_control_mode=VerticalControlMode.COMMIT,
             )
             self.last_command = command
             return command
@@ -160,7 +174,7 @@ class StrikeGuidance:
             # ABORT removes the forward-pitch command and asks the altitude
             # loop to damp vertical motion around the current altitude.
             thrust = self.config.hover_thrust_n + self.altitude_pid.update(0.0, data.barometer.vertical_velocity_mps)
-            return GuidanceCommand(self.phase, thrust, 0.0, None)
+            return GuidanceCommand(self.phase, thrust, 0.0, None, vertical_control_mode=VerticalControlMode.ABORT)
 
         # TRACK has a visible target. Convert its current TTC estimate into a
         # forward/descent trajectory, then let the velocity loops form pitch
@@ -168,10 +182,12 @@ class StrikeGuidance:
         return self._track_command(data)
 
     def _track_command(self, data: GuidanceInput) -> GuidanceCommand:
-        trajectory = self.trajectory.command(
-            data.observation.ttc_s if data.observation else None,
-            data.barometer.altitude_m,
-        )
+        ttc_valid = data.observation is not None and data.observation.ttc_s <= self.config.ttc_activation_s
+        mode = VerticalControlMode.TTC if ttc_valid else VerticalControlMode.DY
+        trajectory = self.trajectory.command(data.observation.ttc_s if ttc_valid else None, data.barometer.altitude_m)
+        camera_correction = self._camera_dy_correction(data.vertical_alignment_error_deg) if mode == VerticalControlMode.DY and data.target_visible else 0.0
+        if camera_correction:
+            trajectory = replace(trajectory, vertical_velocity_mps=trajectory.vertical_velocity_mps + camera_correction)
         pitch_correction = self.forward_pid.update(
             trajectory.forward_velocity_mps - data.forward_velocity_mps,
             0.0,
@@ -180,7 +196,7 @@ class StrikeGuidance:
         if data.target_visible and data.observation is None:
             pitch = min(self.config.max_pitch_rad + self.config.ttc_unavailable_pitch_boost_rad, pitch + self.config.ttc_unavailable_pitch_boost_rad)
         corrected_vz = self._corrected_vertical_velocity(trajectory, data.barometer.altitude_m)
-        if data.observation is not None:
+        if ttc_valid:
             self.last_tracking_descent_velocity_mps = corrected_vz
         vertical_force = self.config.hover_thrust_n + self.vertical_velocity_pid.update(
             corrected_vz - data.barometer.vertical_velocity_mps,
@@ -190,9 +206,29 @@ class StrikeGuidance:
         # Compensate for the attitude the vehicle actually has, not only the
         # target attitude. This preserves vertical lift during pitch lag.
         thrust = vertical_force / max(cos(data.measured_pitch_rad), 0.5)
-        command = GuidanceCommand(self.phase, thrust, pitch, trajectory, vertical_velocity_target_mps=corrected_vz)
+        command = GuidanceCommand(
+            self.phase,
+            thrust,
+            pitch,
+            trajectory,
+            vertical_velocity_target_mps=corrected_vz,
+            vertical_control_mode=mode,
+            camera_dy_correction_mps=camera_correction,
+        )
         self.last_command = command
         return command
+
+    def _camera_dy_correction(self, error_deg: float | None) -> float:
+        """Return the bounded descent correction for a compensated camera error."""
+        if error_deg is None or not isfinite(error_deg):
+            return 0.0
+        deadband = self.config.camera_dy_deadband_deg
+        if abs(error_deg) <= deadband:
+            return 0.0
+        effective_error = error_deg - copysign(deadband, error_deg)
+        correction = -self.config.camera_dy_gain_mps_per_deg * effective_error
+        limit = self.config.camera_dy_max_correction_mps
+        return max(-limit, min(limit, correction))
 
     def _corrected_vertical_velocity(self, trajectory: TrajectoryCommand, altitude_m: float) -> float:
         """Return the bounded descent target after altitude-error correction."""

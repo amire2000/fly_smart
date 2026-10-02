@@ -39,6 +39,9 @@ runtime:
     commit_box_height_fraction: 0.1  # Bbox height fraction that arms commit.
     ttc_unavailable_pitch_boost_deg: 5.0  # Keep a steady slant while target lock has no valid TTC.
     ttc_activation_s: 8.0           # Trust TTC for final descent only when it is short.
+    camera_dy_gain_mps_per_deg: 0.20 # Vertical-speed correction per compensated camera degree.
+    camera_dy_deadband_deg: 1.0      # Ignore small compensated vertical alignment errors.
+    camera_dy_max_correction_mps: 2.0 # Bound camera correction before altitude safety limits.
     alpha: 0.85                       # Trust in each measured bbox scale.
     beta: 0.05                        # Trust in the bbox-scale-rate correction.
   sensors:

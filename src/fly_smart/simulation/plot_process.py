@@ -110,6 +110,8 @@ def latest_sample(log: FlightLog) -> dict[str, object] | None:
         "command_vz": log.command_vz_mps[index],
         "pid_vz": log.pid_vz_target_mps[index],
         "command_altitude": log.command_altitude_m[index],
+        "vertical_control_mode": log.vertical_control_mode[index] if log.vertical_control_mode else "",
+        "camera_dy_correction": log.camera_dy_correction_mps[index] if log.camera_dy_correction_mps else float("nan"),
         "thrust": log.command_thrust_n[index],
         "pitch": log.command_pitch_deg[index],
         "measured_pitch": log.measured_pitch_deg[index],

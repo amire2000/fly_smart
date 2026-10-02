@@ -74,6 +74,9 @@ runtime:
     ttc_unavailable_descent_velocity_mps: 1.5  # Initial descent magnitude before TTC is valid; zero disables it.
     ttc_unavailable_pitch_boost_deg: 5.0  # Extra pitch while bbox is visible but TTC is invalid; zero disables it.
     ttc_activation_s: 8.0                 # Trust TTC for final descent only below this value [s].
+    camera_dy_gain_mps_per_deg: 0.20      # Vertical-speed correction per compensated camera degree.
+    camera_dy_deadband_deg: 1.0           # Ignore small compensated vertical alignment errors [deg].
+    camera_dy_max_correction_mps: 2.0     # Maximum camera correction magnitude [m/s].
   sensors:
     barometer:
       sample_hz: 40.0                     # BMP388 altitude update rate [Hz]; independent of the camera.

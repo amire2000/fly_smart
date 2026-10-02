@@ -18,6 +18,7 @@ from .godot_bridge import GodotBridge
 from ..red_target_detector import detect_red_box
 
 from .config import SceneConfig, StrikeConfig
+from ..camera_geometry import bbox_alignment_angles
 from ..guidance import FlightPhase, GuidanceCommand, GuidanceInput, StrikeGuidance
 from ..sensing import BarometerReading, VerticalEstimator
 from .sensors import Barometer, VerticalImu
@@ -97,6 +98,7 @@ class StrikeSimulation:
         baro = BarometerReading(config.launch_position[2], 0.0)
         observation: TtcObservation | None = None
         target_visible = False
+        vertical_alignment_error_deg: float | None = None
         force_lines = [-1, -1, -1, -1]
         renderer = p.ER_BULLET_HARDWARE_OPENGL if gui else p.ER_TINY_RENDERER
         impact_speed, stop_at_s = 0.0, None
@@ -129,7 +131,7 @@ class StrikeSimulation:
             nonlocal attempt_number, attempt_video, attempt_plot, attempt_csv, attempt_summary
             nonlocal engine, barometer, tracker, guidance, vertical_imu, vertical_estimator
             nonlocal previous_vertical_velocity_mps, attitude_controller, torque, command, baro
-            nonlocal observation, target_visible, impact_speed, stop_at_s, log, writer, rtf_started, simulated_elapsed_s
+            nonlocal observation, target_visible, vertical_alignment_error_deg, impact_speed, stop_at_s, log, writer, rtf_started, simulated_elapsed_s
             if writer:
                 writer.release()
             if interactive and attempt_number:
@@ -171,7 +173,7 @@ class StrikeSimulation:
             torque = (0.0, 0.0, 0.0)
             command = GuidanceCommand(FlightPhase.TAKEOFF, config.hover_thrust_n, 0.0, None)
             baro = BarometerReading(config.launch_position[2], 0.0)
-            observation, target_visible = None, False
+            observation, target_visible, vertical_alignment_error_deg = None, False, None
             impact_speed, stop_at_s = 0.0, None
             rtf_started = None
             simulated_elapsed_s = 0.0
@@ -301,6 +303,13 @@ class StrikeSimulation:
                                 writer.write(cv2.resize(frame, config.environment_size_px))
                             target_visible = box is not None
                             observation = tracker.update(box, now_s)
+                            vertical_alignment_error_deg = bbox_alignment_angles(
+                                box,
+                                config.camera_width_px,
+                                config.camera_height_px,
+                                config.camera_fov_deg,
+                                p.getEulerFromQuaternion(drone_orientation)[1],
+                            )[2]
                         trajectory = command.trajectory
                         self.godot.publish_pose(
                             drone_position,
@@ -336,6 +345,13 @@ class StrikeSimulation:
                         )
                         target_visible = box is not None
                         observation = tracker.update(box, now_s)
+                        vertical_alignment_error_deg = bbox_alignment_angles(
+                            box,
+                            config.camera_width_px,
+                            config.camera_height_px,
+                            config.camera_fov_deg,
+                            p.getEulerFromQuaternion(p.getBasePositionAndOrientation(drone)[1])[1],
+                        )[2]
 
                 if step % control_steps == 0:
                     if stop_at_s is None:
@@ -350,6 +366,7 @@ class StrikeSimulation:
                             tracker.commit_ready,
                             current_velocity[0],
                             measured_pitch,
+                            vertical_alignment_error_deg,
                         ))
                         if command.reset_ttc:
                             # This flag belongs to the takeoff-to-track handoff:

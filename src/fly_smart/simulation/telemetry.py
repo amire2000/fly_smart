@@ -3,25 +3,16 @@
 from dataclasses import dataclass, field
 import csv
 import json
-from math import atan, degrees, isfinite, radians, tan
+from math import degrees, isfinite, radians
 from pathlib import Path
 
 from .drone_model import PhysicsStep
 
+from ..camera_geometry import bbox_alignment_angles
 from .config import SceneConfig, StrikeConfig
 from ..guidance import GuidanceCommand
 from ..sensing import BarometerReading
 from ..ttc import TtcObservation
-
-
-def _bbox_center_angles(dx_px: float, dy_px: float, camera_width_px: float, camera_height_px: float, horizontal_fov_rad: float) -> tuple[float, float]:
-    """Convert image-center offsets to horizontal and vertical angles."""
-    if not (isfinite(dx_px) and isfinite(dy_px)):
-        return float("nan"), float("nan")
-    vertical_fov_rad = 2.0 * atan(tan(horizontal_fov_rad / 2.0) * camera_height_px / camera_width_px)
-    dx_deg = degrees(atan((dx_px / (camera_width_px / 2.0)) * tan(horizontal_fov_rad / 2.0)))
-    dy_deg = degrees(atan((dy_px / (camera_height_px / 2.0)) * tan(vertical_fov_rad / 2.0)))
-    return dx_deg, dy_deg
 
 
 @dataclass
@@ -39,6 +30,8 @@ class FlightLog:
     command_vz_mps: list[float] = field(default_factory=list)
     pid_vz_target_mps: list[float] = field(default_factory=list)
     command_altitude_m: list[float] = field(default_factory=list)
+    vertical_control_mode: list[str] = field(default_factory=list)
+    camera_dy_correction_mps: list[float] = field(default_factory=list)
     command_thrust_n: list[float] = field(default_factory=list)
     command_pitch_deg: list[float] = field(default_factory=list)
     pitch_error_deg: list[float] = field(default_factory=list)
@@ -80,6 +73,8 @@ class FlightLog:
         self.command_vz_mps.append(trajectory.vertical_velocity_mps if trajectory else float("nan"))
         self.pid_vz_target_mps.append(command.vertical_velocity_target_mps if command.vertical_velocity_target_mps is not None else float("nan"))
         self.command_altitude_m.append(trajectory.altitude_target_m if trajectory else float("nan"))
+        self.vertical_control_mode.append(command.vertical_control_mode.value)
+        self.camera_dy_correction_mps.append(command.camera_dy_correction_mps)
         self.command_thrust_n.append(command.thrust_n)
         self.command_pitch_deg.append(degrees(command.pitch_target_rad))
         self.phase.append(command.phase.value)
@@ -98,16 +93,16 @@ class FlightLog:
         else:
             self.bbox_center_dx_px.append(float("nan"))
             self.bbox_center_dy_px.append(float("nan"))
-        dx_deg, dy_deg = _bbox_center_angles(
-            self.bbox_center_dx_px[-1],
-            self.bbox_center_dy_px[-1],
+        dx_deg, dy_deg, compensated_dy_deg = bbox_alignment_angles(
+            observation.box if observation else None,
             camera_width_px,
             camera_height_px,
-            radians(camera_fov_deg),
+            camera_fov_deg,
+            measured_pitch_rad,
         )
         self.bbox_center_dx_deg.append(dx_deg)
         self.bbox_center_dy_deg.append(dy_deg)
-        self.pitch_compensated_dy_deg.append(dy_deg - degrees(measured_pitch_rad) if isfinite(dy_deg) else float("nan"))
+        self.pitch_compensated_dy_deg.append(compensated_dy_deg)
         body_drag = physics_step.body_drag_force_body_n if physics_step else (float("nan"),) * 3
         angular_damping = physics_step.angular_damping_torque_body_nm if physics_step else (float("nan"),) * 3
         gyroscopic = physics_step.gyroscopic_torque_body_nm if physics_step else (float("nan"),) * 3
@@ -141,6 +136,8 @@ def append_telemetry_sample(log: FlightLog, sample: dict[str, object]) -> None:
     log.command_vz_mps.append(number("command_vz"))
     log.pid_vz_target_mps.append(number("pid_vz"))
     log.command_altitude_m.append(number("command_altitude"))
+    log.vertical_control_mode.append(str(sample.get("vertical_control_mode", "")))
+    log.camera_dy_correction_mps.append(number("camera_dy_correction"))
     log.command_thrust_n.append(number("thrust"))
     log.command_pitch_deg.append(number("pitch"))
     log.measured_pitch_deg.append(number("measured_pitch"))
@@ -217,12 +214,13 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
     command_vx_line, = trajectory_axis.plot([], [], label="command vx", color="#2563eb")
     command_vz_line, = trajectory_axis.plot([], [], label="TTC vz", color="#dc2626")
     pid_vz_target_line, = trajectory_axis.plot([], [], label="PID vz target", color="#7c3aed")
+    camera_dy_correction_line, = trajectory_axis.plot([], [], "-.", label="camera dy correction (DY mode)", color="#0891b2")
     trajectory_altitude_axis = trajectory_axis.twinx()
     command_altitude_line, = trajectory_altitude_axis.plot([], [], "--", label="altitude target", color="#16a34a")
     trajectory_axis.set(xlabel="time (s)", ylabel="velocity command (m/s)", title="TrajectoryCommand")
     trajectory_altitude_axis.set_ylabel("altitude target (m)")
     trajectory_axis.grid(alpha=0.25)
-    trajectory_axis.legend((command_vx_line, command_vz_line, pid_vz_target_line, command_altitude_line), ("command vx", "TTC vz", "PID vz target", "altitude target"), loc="upper left")
+    trajectory_axis.legend((command_vx_line, command_vz_line, pid_vz_target_line, camera_dy_correction_line, command_altitude_line), ("command vx", "TTC vz", "PID vz target", "camera dy correction (DY mode)", "altitude target"), loc="upper left")
 
     thrust_line, = guidance_axis.plot([], [], label="collective thrust", color="#7c3aed")
     pitch_axis = guidance_axis.twinx()
@@ -286,7 +284,7 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
         ttc_gate_line,
         alignment_zero_px,
         alignment_zero_angle,
-        (vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, command_vx_line, command_vz_line, pid_vz_target_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line),
+        (vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, command_vx_line, command_vz_line, pid_vz_target_line, camera_dy_correction_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line),
         (velocity_axis, guidance_axis, growth_axis, ttc_axis, alignment_axis, alignment_angle_axis, barometer_axis),
         collision_axes=(velocity_axis, trajectory_axis, guidance_axis, growth_axis, ttc_axis, alignment_axis, alignment_angle_axis, barometer_axis),
     )
@@ -331,7 +329,7 @@ def _refresh_phase_backgrounds(plot: TelemetryPlot, log: FlightLog) -> None:
 
 
 def refresh_plot(plot: TelemetryPlot, log: FlightLog) -> None:
-    vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, command_vx_line, command_vz_line, pid_vz_target_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line = plot.lines
+    vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, command_vx_line, command_vz_line, pid_vz_target_line, camera_dy_correction_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line = plot.lines
     vx_line.set_data(log.time_s, log.vx_mps)
     velocity_command_line.set_data(log.time_s, log.command_vx_mps)
     vz_line.set_data(log.time_s, log.vz_mps)
@@ -351,6 +349,7 @@ def refresh_plot(plot: TelemetryPlot, log: FlightLog) -> None:
     def tracking_values(values: list[float]) -> list[float]:
         return [value if active and isfinite(value) else float("nan") for value, active in zip(values, tracking)]
 
+    camera_dy_correction_line.set_data(log.time_s, tracking_values(log.camera_dy_correction_mps))
     raw_growth_line.set_data(log.time_s, tracking_values(log.raw_bbox_growth_px_s))
     filtered_growth_line.set_data(log.time_s, tracking_values(log.bbox_growth_px_s))
     raw_ttc_line.set_data(log.time_s, tracking_values(log.raw_ttc_s))
@@ -395,7 +394,7 @@ def save_csv(log: FlightLog, output: Path) -> None:
     """Write measured state and every high-level command for offline tuning."""
     output.parent.mkdir(parents=True, exist_ok=True)
     fields = ("time_s", "phase", "x_m", "y_m", "z_m", "vx_mps", "vz_mps", "barometer_raw_altitude_m", "barometer_filtered_altitude_m", "barometer_filtered_vertical_velocity_mps", "command_vx_mps",
-              "command_vz_mps", "pid_vz_target_mps", "command_altitude_m", "command_thrust_n", "command_pitch_deg",
+              "command_vz_mps", "pid_vz_target_mps", "command_altitude_m", "vertical_control_mode", "camera_dy_correction_mps", "command_thrust_n", "command_pitch_deg",
               "measured_pitch_deg", "pitch_error_deg", "pitch_torque", "ttc_s", "raw_ttc_s", "bbox_scale_px", "bbox_growth_px_s", "raw_bbox_growth_px_s", "bbox_center_dx_px", "bbox_center_dy_px", "bbox_center_dx_deg", "bbox_center_dy_deg", "pitch_compensated_dy_deg",
               "body_drag_x_n", "body_drag_z_n", "angular_damping_pitch_torque_nm", "gyroscopic_pitch_torque_nm", "ground_effect_max_multiplier")
     with output.open("w", newline="") as stream:

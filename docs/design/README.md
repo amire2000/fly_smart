@@ -24,5 +24,6 @@ for work that has not been committed yet.
 | [ttc-trust-gate-and-descent-cap.md](ttc-trust-gate-and-descent-cap.md) | Ignore long TTC estimates and bound altitude-error descent correction. | `pending` |
 | [ttc-seconds-plot.md](ttc-seconds-plot.md) | Display raw and filtered TTC estimates in seconds with the activation gate. | `pending` |
 | [bbox-center-alignment-plot.md](bbox-center-alignment-plot.md) | Plot bbox-center pixel errors and calibrated angular offsets. | `pending` |
+| [camera_pitch_compensation.md](camera_pitch_compensation.md) | Pitch-compensated bbox vertical error and DY/TTC altitude control. | `pending` |
 | [max-descent-rate-5_5.md](max-descent-rate-5_5.md) | Raise the shared maximum descent-rate limit to 5.5 m/s. | `pending` |
 | [vscode-godot-task.md](vscode-godot-task.md) | VS Code tasks for Godot, Python, and the compound launcher. | `e208f57` |

@@ -40,7 +40,7 @@ def test_camera_angles_and_pitch_compensation_use_configured_geometry():
     expected_dy = degrees(atan((20.0 / 240.0) * tan(vertical_fov / 2.0)))
     assert isclose(log.bbox_center_dx_deg[0], expected_dx)
     assert isclose(log.bbox_center_dy_deg[0], expected_dy)
-    assert isclose(log.pitch_compensated_dy_deg[0], expected_dy - 5.0)
+    assert isclose(log.pitch_compensated_dy_deg[0], expected_dy + 5.0)
 
 
 def test_camera_compensation_is_nan_without_a_detection():
@@ -65,11 +65,11 @@ def test_ttc_plot_shows_raw_filtered_seconds_and_activation_gate():
         log.append(time_s, (time_s, 0.0, 15.0), (1.0, 0.0, 0.0), command, observation=TtcObservation((0, 0, 10, 10), 10.0, 1.0, raw_ttc_s, 1.0, ttc_s))
     refresh_plot(plot, log)
     assert plot.ttc_axis.get_ylabel() == "TTC (s)"
-    assert list(plot.lines[14].get_ydata()) == [12.0, 7.0]
-    assert list(plot.lines[15].get_ydata()) == [11.0, 6.5]
+    assert list(plot.lines[15].get_ydata()) == [12.0, 7.0]
+    assert list(plot.lines[16].get_ydata()) == [11.0, 6.5]
     assert plot.ttc_gate_line.get_ydata()[0] == config.ttc_activation_s
     assert plot.alignment_axis.get_ylabel() == "center error (px)"
-    assert list(plot.lines[16].get_ydata()) == [-315.0, -315.0]
-    assert list(plot.lines[17].get_ydata()) == [-235.0, -235.0]
-    assert list(plot.lines[20].get_ydata()) == list(log.pitch_compensated_dy_deg)
+    assert list(plot.lines[17].get_ydata()) == [-315.0, -315.0]
+    assert list(plot.lines[18].get_ydata()) == [-235.0, -235.0]
+    assert list(plot.lines[21].get_ydata()) == list(log.pitch_compensated_dy_deg)
     plt.close(plot.figure)

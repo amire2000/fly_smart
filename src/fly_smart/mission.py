@@ -31,6 +31,9 @@ class MissionConfig:
     min_growth_px_per_s: float = 0.01
     ttc_unavailable_descent_velocity_mps: float = 1.5
     ttc_unavailable_pitch_boost_deg: float = 0.0
+    camera_dy_gain_mps_per_deg: float = 0.20
+    camera_dy_deadband_deg: float = 1.0
+    camera_dy_max_correction_mps: float = 2.0
     vertical_estimator_alpha: float = 0.08
     vertical_estimator_beta: float = 0.005
     altitude_pid_gains: tuple[float, float, float] = (1.8, 0.05, 2.2)
