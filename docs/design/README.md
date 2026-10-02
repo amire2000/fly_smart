@@ -29,3 +29,4 @@ for work that has not been committed yet.
 | [vscode-godot-task.md](vscode-godot-task.md) | VS Code tasks for Godot, Python, and the compound launcher. | `e208f57` |
 | [config-sensor-ownership.md](config-sensor-ownership.md) | Move raw barometer and IMU YAML settings under `simulation.sensors`. | `pending` |
 | [red-target-tracker-package.md](red-target-tracker-package.md) | Move the reusable red-target detector under `fly_smart.trackers`. | `pending` |
+| [simulation-main-loop.md](simulation-main-loop.md) | Explain the simulation control loop, timing domains, and Godot/plot data flow. | `pending` |
