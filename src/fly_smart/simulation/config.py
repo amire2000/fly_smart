@@ -157,7 +157,14 @@ class StrikeConfig:
 
     def __getattr__(self, name: str):
         """Keep the old flat access API while callers migrate to grouped config."""
-        for group in (self.simulation, self.runtime):
+        # Pickle creates the instance before restoring dataclass fields. Use
+        # object-level lookup so a missing field does not recurse through this
+        # compatibility hook while multiprocessing reconstructs the config.
+        try:
+            groups = (object.__getattribute__(self, "simulation"), object.__getattribute__(self, "runtime"))
+        except AttributeError:
+            raise AttributeError(name) from None
+        for group in groups:
             if hasattr(group, name):
                 return getattr(group, name)
         raise AttributeError(name)

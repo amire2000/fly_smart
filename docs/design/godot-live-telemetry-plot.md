@@ -3,6 +3,8 @@
 Add an explicit `--show-plots` option that opens the existing full telemetry
 figure while PyBullet remains in DIRECT mode. It refreshes the same figure used
 by the PyBullet GUI path and does not alter control, TTC, or recorded output.
+The live figure runs in a separate UDP-fed plotting process so Matplotlib redraws
+cannot block the physics loop.
 
 The Godot VS Code task includes this option. Validation is CLI argument
 parsing and the maintained Python test suite; showing a desktop plot requires

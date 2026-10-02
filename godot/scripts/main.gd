@@ -235,7 +235,7 @@ func _build_cameras() -> void:
 	_rtf_label.text = "RTF: --"
 	_rtf_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	_rtf_label.offset_left = -132
-	_rtf_label.offset_top = -42
+	_rtf_label.offset_top = -66
 	_rtf_label.offset_right = -16
 	_rtf_label.offset_bottom = -14
 	_rtf_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -302,7 +302,7 @@ func _update_fpv_overlay(raw_overlay: Variant) -> void:
 		_bbox_panel.size = Vector2(float(bbox[2]) * 0.75, float(bbox[3]) * 0.75)
 	else:
 		_bbox_panel.visible = false
-	_rtf_label.text = "RTF: %sx" % _format_rtf(overlay)
+	_rtf_label.text = "RTF: %sx\nRUN: %s s" % [_format_rtf(overlay), _format_overlay_value(overlay.get("running_time_s"))]
 	_telemetry_label.text = "phase: %s\npitch: %s deg   thrust: %s N\nscale: %s px   growth: %s px/s\nTTC: %s s\nvx command: %s m/s   vz command: %s m/s" % [
 			str(overlay.get("phase", "takeoff")),
 			_format_overlay_value(overlay.get("pitch_deg")),

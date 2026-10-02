@@ -92,6 +92,43 @@ class FlightLog:
             self.collision_velocity_mps = tuple(velocity)
 
 
+def append_telemetry_sample(log: FlightLog, sample: dict[str, object]) -> None:
+    """Append one serialized live-plot sample to a child-process log."""
+    def number(name: str) -> float:
+        value = sample.get(name)
+        return float(value) if isinstance(value, (int, float)) else float("nan")
+
+    log.time_s.append(number("t"))
+    log.phase.append(str(sample.get("phase", "")))
+    log.x_m.append(number("x"))
+    log.z_m.append(number("z"))
+    log.y_m.append(float("nan"))
+    log.vx_mps.append(number("vx"))
+    log.vz_mps.append(number("vz"))
+    log.command_vx_mps.append(number("command_vx"))
+    log.command_vz_mps.append(number("command_vz"))
+    log.pid_vz_target_mps.append(number("pid_vz"))
+    log.command_altitude_m.append(number("command_altitude"))
+    log.command_thrust_n.append(number("thrust"))
+    log.command_pitch_deg.append(number("pitch"))
+    log.measured_pitch_deg.append(number("measured_pitch"))
+    log.ttc_s.append(number("ttc"))
+    log.raw_ttc_s.append(number("raw_ttc"))
+    log.bbox_scale_px.append(number("bbox_scale"))
+    log.bbox_growth_px_s.append(number("bbox_growth"))
+    log.raw_bbox_growth_px_s.append(number("raw_bbox_growth"))
+    log.barometer_raw_altitude_m.append(number("barometer_raw"))
+    log.barometer_filtered_altitude_m.append(number("barometer_filtered"))
+    log.barometer_filtered_vertical_velocity_mps.append(float("nan"))
+    log.pitch_error_deg.append(float("nan"))
+    log.pitch_torque.append(float("nan"))
+    log.body_drag_x_n.append(float("nan"))
+    log.body_drag_z_n.append(float("nan"))
+    log.angular_damping_pitch_torque_nm.append(float("nan"))
+    log.gyroscopic_pitch_torque_nm.append(float("nan"))
+    log.ground_effect_max_multiplier.append(float("nan"))
+
+
 @dataclass
 class TelemetryPlot:
     figure: object

@@ -21,7 +21,8 @@ from .config import SceneConfig, StrikeConfig
 from ..guidance import FlightPhase, GuidanceCommand, GuidanceInput, StrikeGuidance
 from ..sensing import BarometerReading, VerticalEstimator
 from .sensors import Barometer, VerticalImu
-from .telemetry import FlightLog, build_summary, make_plot, move_plot_window, refresh_plot, save_csv, save_plot, save_summary
+from .telemetry import FlightLog, build_summary, save_csv, save_plot, save_summary
+from .plot_process import latest_sample, send_plot_message, start_plot_process
 from ..ttc import BboxTtcTracker, TtcObservation
 from .views import annotate, environment_rgb
 
@@ -29,6 +30,21 @@ from .views import annotate, environment_rgb
 def real_time_factor(simulated_seconds: float, wall_seconds: float) -> float:
     """Return simulated time divided by elapsed wall-clock time."""
     return simulated_seconds / wall_seconds if wall_seconds > 0.0 else 0.0
+
+
+def pacing_sleep_seconds(deadline: float, now: float) -> float:
+    """Return only the remaining time before a real-time deadline."""
+    return max(0.0, deadline - now)
+
+
+def pace_until(deadline: float) -> None:
+    """Sleep coarsely, then spin briefly to avoid scheduler overshoot."""
+    while True:
+        remaining = deadline - time.perf_counter()
+        if remaining <= 0.0:
+            return
+        if remaining > 0.001:
+            time.sleep(remaining - 0.001)
 
 
 @dataclass(frozen=True)
@@ -79,18 +95,16 @@ class StrikeSimulation:
         force_lines = [-1, -1, -1, -1]
         renderer = p.ER_BULLET_HARDWARE_OPENGL if gui else p.ER_TINY_RENDERER
         impact_speed, stop_at_s = 0.0, None
-        wall_started = time.perf_counter()
+        rtf_started: float | None = None
         simulated_elapsed_s = 0.0
         log = FlightLog()
         writer = None
         attempt_number = 0
         attempt_video, attempt_plot, attempt_csv, attempt_summary = video, plot, csv, summary
-        live_plot = self._live_plot(gui or show_plots or interactive, plot, config, self.scene)
-        if interactive and live_plot:
-            live_plot.figure.subplots_adjust(bottom=0.08)
+        plot_handle = start_plot_process(config, self.scene, self.scenario_name, plot) if gui or show_plots or interactive else None
+        plot_process, plot_sender = plot_handle if plot_handle else (None, None)
+        next_plot_emit = time.perf_counter()
         controls: SimulationControls | None = SimulationControls() if interactive else None
-        if controls and live_plot:
-            live_plot.figure.canvas.mpl_connect("close_event", lambda _: controls.request_exit())
         show_frame = gui
         if show_frame:
             cv2.namedWindow("TTC diagonal strike", cv2.WINDOW_NORMAL)
@@ -99,14 +113,18 @@ class StrikeSimulation:
             p.resetDebugVisualizerCamera(36.0, 48.0, -25.0, (7.0, 0.0, 7.0))
 
         def current_rtf() -> float:
-            return real_time_factor(simulated_elapsed_s, time.perf_counter() - wall_started)
+            return real_time_factor(simulated_elapsed_s, running_time_seconds())
+
+        def running_time_seconds() -> float:
+            """Return active wall-clock seconds for the current attempt."""
+            return time.perf_counter() - rtf_started if rtf_started is not None else 0.0
 
         def reset_attempt() -> None:
             """Restore the complete flight state and publish Godot's initial pose."""
             nonlocal attempt_number, attempt_video, attempt_plot, attempt_csv, attempt_summary
             nonlocal engine, barometer, tracker, guidance, vertical_imu, vertical_estimator
             nonlocal previous_vertical_velocity_mps, attitude_controller, torque, command, baro
-            nonlocal observation, target_visible, impact_speed, stop_at_s, log, writer
+            nonlocal observation, target_visible, impact_speed, stop_at_s, log, writer, rtf_started, simulated_elapsed_s
             if writer:
                 writer.release()
             if interactive and attempt_number:
@@ -150,14 +168,16 @@ class StrikeSimulation:
             baro = BarometerReading(config.launch_position[2], 0.0)
             observation, target_visible = None, False
             impact_speed, stop_at_s = 0.0, None
+            rtf_started = None
+            simulated_elapsed_s = 0.0
             log = FlightLog()
-            if live_plot:
-                refresh_plot(live_plot, log)
+            if plot_sender:
+                send_plot_message(plot_sender, {"type": "reset"})
             if self.godot:
                 self.godot.clear_collision_events()
                 self.godot.clear_control_events()
                 target_position, target_orientation = p.getBasePositionAndOrientation(cube)
-                self.godot.publish_pose(config.launch_position, (0, 0, 0, 1), target_position, target_orientation, reset=True, overlay={"bbox": None, "rtf": current_rtf()})
+                self.godot.publish_pose(config.launch_position, (0, 0, 0, 1), target_position, target_orientation, reset=True, overlay={"bbox": None, "rtf": current_rtf(), "running_time_s": running_time_seconds()})
 
         reset_attempt()
 
@@ -166,8 +186,6 @@ class StrikeSimulation:
                 save_plot(log, config, self.scene, attempt_plot, self.scenario_name)
             if attempt_csv:
                 save_csv(log, attempt_csv)
-            if live_plot:
-                refresh_plot(live_plot, log)
             result = StrikeResult(success, phase, now_s, impact_speed, attempt_video, attempt_plot, attempt_csv, attempt_summary)
             summary_data = build_summary(log, config, self.scene, success, phase, now_s, {"video": attempt_video, "plot": attempt_plot, "csv": attempt_csv, "summary": attempt_summary}, abort_reason)
             if attempt_summary:
@@ -183,19 +201,22 @@ class StrikeSimulation:
 
         def poll_control() -> None:
             """Apply the newest Godot toolbar command to the local state."""
+            nonlocal rtf_started
             if not controls or not self.godot:
                 return
             action = self.godot.read_control_event()
             if action == "start":
+                if not controls.running:
+                    rtf_started = time.perf_counter()
                 controls.start()
             elif action == "reset":
                 controls.request_reset()
 
         try:
             step = 0
+            next_deadline = time.perf_counter()
             while step < round(max_seconds / time_step):
                 if controls:
-                    import matplotlib.pyplot as plt
                     while not controls.running:
                         if controls.exit_requested:
                             return finish(False, command.phase.value, step * time_step, "Interactive session closed")
@@ -203,7 +224,7 @@ class StrikeSimulation:
                         if controls.consume_reset():
                             reset_attempt()
                             step = 0
-                        plt.pause(0.02)
+                        time.sleep(0.02)
                         if show_frame:
                             cv2.waitKey(1)
                     poll_control()
@@ -211,6 +232,7 @@ class StrikeSimulation:
                         reset_attempt()
                         step = 0
                         continue
+                    next_deadline = time.perf_counter()
                 if controls:
                     poll_control()
                 now_s = step * time_step
@@ -255,6 +277,7 @@ class StrikeSimulation:
                                 "command_vx_mps": trajectory.forward_velocity_mps if trajectory else None,
                                 "command_vz_mps": trajectory.vertical_velocity_mps if trajectory else None,
                                 "rtf": current_rtf(),
+                                "running_time_s": running_time_seconds(),
                             },
                         )
                     else:
@@ -321,6 +344,8 @@ class StrikeSimulation:
                 pwm = engine.pwm_from_thrust(clamp(collective / 4, 0.0, model.max_thrust_per_motor_n))
                 incoming_velocity = p.getBaseVelocity(drone)[0]
                 flight_step = engine.step(drone, pwm, torque)
+                if rtf_started is None:
+                    rtf_started = time.perf_counter()
                 simulated_elapsed_s += time_step
                 disconnected = finish_if_disconnected(now_s)
                 if disconnected:
@@ -340,12 +365,15 @@ class StrikeSimulation:
                     log.mark_collision(now_s, position, incoming_velocity)
                     stop_at_s = now_s + config.post_impact_seconds
                     print(f"Impact: {impact_speed:.1f} m/s; recording aftermath for {config.post_impact_seconds:.0f} s")
-                    if live_plot:
-                        refresh_plot(live_plot, log)
+                    if plot_sender:
+                        send_plot_message(plot_sender, {"type": "collision", "time_s": now_s})
                 elif stop_at_s is None and collision_kind == "obstacle":
                     return finish(False, command.phase.value, now_s, "Godot obstacle collision")
-                elif stop_at_s is None and live_plot and step % (physics_hz // config.camera_hz) == 0:
-                    refresh_plot(live_plot, log)
+                if plot_sender and time.perf_counter() >= next_plot_emit:
+                    sample = latest_sample(log)
+                    if sample:
+                        send_plot_message(plot_sender, sample)
+                    next_plot_emit = time.perf_counter() + 0.2
                 if stop_at_s is not None and now_s >= stop_at_s:
                     # Contact is the geometry-free success condition.  Keep
                     # impact speed as telemetry instead of rejecting a valid
@@ -365,7 +393,10 @@ class StrikeSimulation:
                     step = 0
                     continue
                 if gui or self.godot:
-                    time.sleep(time_step)
+                    next_deadline += time_step
+                    pace_until(next_deadline)
+                    if next_deadline < time.perf_counter() - time_step:
+                        next_deadline = time.perf_counter()
                 step += 1
             print(f"Strike timed out in {command.phase.value} phase")
             return finish(False, command.phase.value, max_seconds)
@@ -379,6 +410,13 @@ class StrikeSimulation:
         finally:
             if writer:
                 writer.release()
+            if plot_sender:
+                send_plot_message(plot_sender, {"type": "close"})
+                plot_sender.close()
+            if plot_process:
+                plot_process.join(timeout=1.0)
+                if plot_process.is_alive():
+                    plot_process.terminate()
             if self.godot:
                 self.godot.close()
 
@@ -391,19 +429,6 @@ class StrikeSimulation:
         if not writer.isOpened():
             raise RuntimeError(f"Could not open video output: {video}")
         return writer
-
-    def _live_plot(self, gui: bool, output: Path | None, config: StrikeConfig, scene: SceneConfig):
-        """Create the optional live telemetry window for this named scenario."""
-        if not gui or not output:
-            return None
-        import matplotlib.pyplot as plt
-
-        plt.ion()
-        live_plot = make_plot(config, scene, self.scenario_name)
-        live_plot.figure.canvas.manager.set_window_title(f"TTC strike telemetry — {scene.drone_profile} / {self.scenario_name}")
-        plt.show(block=False)
-        move_plot_window(live_plot, config.plot_window_position_px)
-        return live_plot
 
     def _print_summary(self, result: StrikeResult, summary: dict[str, object]) -> None:
         """Print one colored, human-readable summary for the completed run."""
