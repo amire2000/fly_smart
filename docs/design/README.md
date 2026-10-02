@@ -27,3 +27,4 @@ for work that has not been committed yet.
 | [camera_pitch_compensation.md](camera_pitch_compensation.md) | Pitch-compensated bbox vertical error and DY/TTC altitude control. | `pending` |
 | [max-descent-rate-5_5.md](max-descent-rate-5_5.md) | Raise the shared maximum descent-rate limit to 5.5 m/s. | `pending` |
 | [vscode-godot-task.md](vscode-godot-task.md) | VS Code tasks for Godot, Python, and the compound launcher. | `e208f57` |
+| [config-sensor-ownership.md](config-sensor-ownership.md) | Move raw barometer and IMU YAML settings under `simulation.sensors`. | `pending` |

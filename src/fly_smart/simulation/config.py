@@ -37,6 +37,16 @@ class SimulationConfig:
     ground_effect_max_multiplier: float = 1.25
     gyroscopic_torque_enabled: bool = False
     rotor_inertia_kg_m2: float | None = None
+    barometer_sample_hz: float = 40.0
+    barometer_noise_sigma_m: float = 0.10
+    barometer_bias_m: float = 0.0
+    barometer_drift_sigma_m_per_sqrt_s: float = 0.0
+    barometer_altitude_old_weight: float = 0.80
+    barometer_velocity_old_weight: float = 0.95
+    imu_sample_hz: float = 240.0
+    accelerometer_noise_sigma_mps2: float = 0.0075
+    accelerometer_initial_bias_sigma_mps2: float = 0.0981
+    accelerometer_bias_random_walk_mps2_per_sqrt_s: float = 0.0049
 
     @property
     def drone_model(self) -> DroneModel:
@@ -100,16 +110,6 @@ class RuntimeConfig:
     camera_dy_gain_mps_per_deg: float = 0.20
     camera_dy_deadband_deg: float = 1.0
     camera_dy_max_correction_mps: float = 2.0
-    barometer_sample_hz: float = 40.0
-    barometer_noise_sigma_m: float = 0.10
-    barometer_bias_m: float = 0.0
-    barometer_drift_sigma_m_per_sqrt_s: float = 0.0
-    barometer_altitude_old_weight: float = 0.80
-    barometer_velocity_old_weight: float = 0.95
-    imu_sample_hz: float = 240.0
-    accelerometer_noise_sigma_mps2: float = 0.0075
-    accelerometer_initial_bias_sigma_mps2: float = 0.0981
-    accelerometer_bias_random_walk_mps2_per_sqrt_s: float = 0.0049
     vertical_estimator_alpha: float = 0.08
     vertical_estimator_beta: float = 0.005
     altitude_pid_gains: tuple[float, float, float] = (1.8, 0.05, 2.2)

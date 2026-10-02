@@ -36,6 +36,19 @@ simulation:
       rotor_inertia_kg_m2: 0.000005       # Override profile rotor polar inertia [kg·m²].
   sensor_model:
     random_seed: 7                       # Reproducible sensor-noise seed.
+  sensors:
+    barometer:
+      sample_hz: 40.0                     # BMP388 altitude update rate [Hz]; independent of the camera.
+      altitude_noise_sigma_m: 0.10        # BMP388 full-bandwidth altitude RMS noise [m] from 1.2 Pa.
+      altitude_bias_m: 0.0                # Fixed takeoff-reference/calibration offset [m].
+      drift_sigma_m_per_sqrt_s: 0.0       # Optional slow random-walk field drift [m/sqrt(s)].
+      altitude_old_weight: 0.80           # Previous altitude estimate weight [0..1].
+      velocity_old_weight: 0.95           # Smooth noisy differentiated altitude into vertical speed [0..1].
+    imu:
+      sample_hz: 240.0                    # ICM-42688-P-inspired vertical IMU rate [Hz].
+      accelerometer_noise_sigma_mps2: 0.0075  # 70 ug/sqrt(Hz) over 120 Hz bandwidth.
+      accelerometer_initial_bias_sigma_mps2: 0.0981  # Post-calibration startup bias [m/s²].
+      accelerometer_bias_random_walk_mps2_per_sqrt_s: 0.0049  # Slow bias drift [m/s²/sqrt(s)].
   display:
     environment_size_px: [960, 540]      # Wide environment render size [px].
     opencv_window_position_px: [20, 80]  # Camera-window screen position [px].
@@ -78,19 +91,6 @@ runtime:
     camera_dy_gain_mps_per_deg: 0.20      # Vertical-speed correction per compensated camera degree.
     camera_dy_deadband_deg: 1.0           # Ignore small compensated vertical alignment errors [deg].
     camera_dy_max_correction_mps: 2.0     # Maximum camera correction magnitude [m/s].
-  sensors:
-    barometer:
-      sample_hz: 40.0                     # BMP388 altitude update rate [Hz]; independent of the camera.
-      altitude_noise_sigma_m: 0.10        # BMP388 full-bandwidth altitude RMS noise [m] from 1.2 Pa.
-      altitude_bias_m: 0.0                # Fixed takeoff-reference/calibration offset [m].
-      drift_sigma_m_per_sqrt_s: 0.0       # Optional slow random-walk field drift [m/sqrt(s)].
-      altitude_old_weight: 0.80           # Previous altitude estimate weight [0..1].
-      velocity_old_weight: 0.95           # Smooth noisy differentiated altitude into vertical speed [0..1].
-    imu:
-      sample_hz: 240.0                    # ICM-42688-P-inspired vertical IMU rate [Hz].
-      accelerometer_noise_sigma_mps2: 0.0075  # 70 ug/sqrt(Hz) over 120 Hz bandwidth.
-      accelerometer_initial_bias_sigma_mps2: 0.0981  # Post-calibration startup bias [m/s²].
-      accelerometer_bias_random_walk_mps2_per_sqrt_s: 0.0049  # Slow bias drift [m/s²/sqrt(s)].
   vertical_estimator:
     alpha: 0.08                            # Barometer altitude correction gain.
     beta: 0.005                            # Barometer vertical-speed correction gain.
