@@ -9,6 +9,7 @@ class SimulationControls:
 
     running: bool = False
     reset_requested: bool = False
+    stop_requested: bool = False
     exit_requested: bool = False
     def start(self) -> None:
         """Allow the simulation loop to advance physics."""
@@ -26,6 +27,15 @@ class SimulationControls:
     def consume_reset(self) -> bool:
         """Return and clear one pending reset request."""
         requested, self.reset_requested = self.reset_requested, False
+        return requested
+
+    def request_stop(self) -> None:
+        """Ask the owner to finalize the current attempt and exit."""
+        self.stop_requested = True
+
+    def consume_stop(self) -> bool:
+        """Return and clear one pending stop request."""
+        requested, self.stop_requested = self.stop_requested, False
         return requested
 
     def request_exit(self) -> None:

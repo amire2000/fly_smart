@@ -105,7 +105,7 @@ class GodotBridge:
                 value = json.loads(payload)
             except (TypeError, json.JSONDecodeError):
                 continue
-            if isinstance(value, dict) and value.get("event") == "simulation_control" and value.get("action") in {"start", "reset"}:
+            if isinstance(value, dict) and value.get("event") == "simulation_control" and value.get("action") in {"start", "reset", "stop"}:
                 event = {"action": value["action"]}
                 if "target_distance_m" in value:
                     event["target_distance_m"] = value["target_distance_m"]

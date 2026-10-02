@@ -106,7 +106,7 @@ def main() -> None:
             scenario_name = args.config.stem if args.config else "default"
             result = StrikeSimulation(config, godot=bridge, scenario_name=scenario_name).run(not args.headless and not args.godot, args.max_seconds, None if args.no_video else video, None if args.no_plot else plot, None if args.no_csv else csv, summary, args.show_plots, args.interactive)
             print(f"run folder: {run_dir}")
-            if args.headless:
+            if args.headless and not args.interactive:
                 assert result.success, f"Strike failed; impact speed was {result.impact_speed_mps:.1f} m/s"
     finally:
         if p.isConnected(client):

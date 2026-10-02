@@ -86,9 +86,10 @@ class RuntimeConfig:
     impact_altitude_m: float = 1.0
     forward_speed_mps: float = 13.0
     nominal_pitch_deg: float = 20.0
-    max_descent_velocity_mps: float = 4.5
+    max_descent_velocity_mps: float = 5.5
     max_climb_velocity_mps: float = 3.0
     min_ttc_s: float = 0.2
+    ttc_activation_s: float = 8.0
     commit_box_height_fraction: float = 0.1
     ttc_alpha: float = 0.85
     ttc_beta: float = 0.05
@@ -115,6 +116,7 @@ class RuntimeConfig:
     max_pitch_deg: float = 20.0
     vertical_velocity_pid_gains: tuple[float, float, float] = (1.0, 0.0, 0.0)
     vertical_position_correction: float = 0.8
+    max_vertical_position_correction_mps: float = 2.0
     takeoff_altitude_tolerance_m: float = 0.2
     takeoff_velocity_tolerance_mps: float = 0.5
     commit_timeout_margin_s: float = 5.0

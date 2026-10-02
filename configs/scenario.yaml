@@ -37,6 +37,8 @@ runtime:
     nominal_pitch_deg: 20.0      # Initial forward pitch request.
   ttc:
     commit_box_height_fraction: 0.1  # Bbox height fraction that arms commit.
+    ttc_unavailable_pitch_boost_deg: 5.0  # Keep a steady slant while target lock has no valid TTC.
+    ttc_activation_s: 8.0           # Trust TTC for final descent only when it is short.
     alpha: 0.85                       # Trust in each measured bbox scale.
     beta: 0.05                        # Trust in the bbox-scale-rate correction.
   sensors:
@@ -55,3 +57,5 @@ runtime:
   vertical_estimator:
     alpha: 0.08
     beta: 0.005
+  vertical_control:
+    max_vertical_position_correction_mps: 2.0

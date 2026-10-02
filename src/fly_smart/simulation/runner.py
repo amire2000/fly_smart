@@ -236,6 +236,8 @@ class StrikeSimulation:
                 if not controls.running:
                     rtf_started = time.perf_counter()
                 controls.start()
+            elif action == "stop":
+                controls.request_stop()
 
         try:
             step = 0
@@ -254,6 +256,8 @@ class StrikeSimulation:
                         if controls.exit_requested:
                             return finish(False, command.phase.value, step * time_step, "Interactive session closed")
                         poll_control()
+                        if controls.consume_stop():
+                            return finish(False, command.phase.value, step * time_step, "Stopped by operator")
                         if controls.consume_reset():
                             reset_attempt()
                             step = 0
@@ -261,6 +265,8 @@ class StrikeSimulation:
                         if show_frame:
                             cv2.waitKey(1)
                     poll_control()
+                    if controls.consume_stop():
+                        return finish(False, command.phase.value, step * time_step, "Stopped by operator")
                     if controls.consume_reset():
                         reset_attempt()
                         step = 0
@@ -268,6 +274,8 @@ class StrikeSimulation:
                     next_deadline = time.perf_counter()
                 if controls:
                     poll_control()
+                    if controls.consume_stop():
+                        return finish(False, command.phase.value, step * time_step, "Stopped by operator")
                 now_s = step * time_step
                 disconnected = finish_if_disconnected(now_s)
                 if disconnected:

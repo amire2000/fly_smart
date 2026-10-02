@@ -17,6 +17,13 @@ def test_reset_pauses_and_is_consumed_once():
     assert not controls.consume_reset()
 
 
+def test_stop_is_consumed_once():
+    controls = SimulationControls()
+    controls.request_stop()
+    assert controls.consume_stop()
+    assert not controls.consume_stop()
+
+
 def test_godot_pose_packet_carries_overlay_payload():
     receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     receiver.bind(("127.0.0.1", 0))
@@ -40,6 +47,20 @@ def test_godot_control_event_preserves_target_distance():
             ("127.0.0.1", bridge._control_socket.getsockname()[1]),
         )
         assert bridge.read_control_event() == {"action": "reset", "target_distance_m": 60}
+    finally:
+        sender.close()
+        bridge.close()
+
+
+def test_godot_stop_control_event_is_valid():
+    bridge = GodotBridge(event_port=0, control_port=0)
+    sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sender.sendto(
+            json.dumps({"event": "simulation_control", "action": "stop"}).encode(),
+            ("127.0.0.1", bridge._control_socket.getsockname()[1]),
+        )
+        assert bridge.read_control_event() == {"action": "stop"}
     finally:
         sender.close()
         bridge.close()

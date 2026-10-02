@@ -43,6 +43,7 @@ runtime:
     beta: 0.05                          # Trust in the bbox-scale-rate correction.
     ttc_unavailable_descent_velocity_mps: 1.5  # Start descent before TTC is reliable.
     ttc_unavailable_pitch_boost_deg: 5.0  # Temporarily command up to 25 deg while bbox growth is invalid.
+    ttc_activation_s: 8.0                # Trust TTC for final descent only when it is short.
   sensors:
     barometer:
       sample_hz: 40.0                   # BMP388 barometer rate, independent of the camera.
@@ -64,3 +65,4 @@ runtime:
       gains: [1.3, 0.0, 0.0]            # [kp, ki, kd]: descent-rate error to collective thrust.
   vertical_control:
     vertical_position_correction: 2.0    # Hold descent demand when TTC grows near the target.
+    max_vertical_position_correction_mps: 2.0  # Bound the correction contribution.

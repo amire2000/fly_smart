@@ -270,6 +270,7 @@ func _build_cameras() -> void:
 	overlay.add_child(controls)
 	_add_control_button(controls, "▶", "Start simulation", "start")
 	_add_control_button(controls, "↻", "Reset simulation", "reset")
+	_add_control_button(controls, "■", "Stop and save unsuccessful attempt", "stop")
 
 	_reset_popup = PopupPanel.new()
 	_reset_popup.name = "ResetTargetPopup"
@@ -311,8 +312,10 @@ func _add_control_button(parent: Control, icon: String, tooltip: String, action:
 	button.add_theme_stylebox_override("hover", hover)
 	if action == "start":
 		button.pressed.connect(_on_start_pressed)
-	else:
+	elif action == "reset":
 		button.pressed.connect(_on_reset_pressed)
+	else:
+		button.pressed.connect(_on_stop_pressed)
 	parent.add_child(button)
 
 
@@ -329,6 +332,11 @@ func _on_reset_pressed() -> void:
 func _confirm_reset_pressed() -> void:
 	_reset_popup.hide()
 	_send_control("reset")
+
+
+func _on_stop_pressed() -> void:
+	_reset_popup.hide()
+	_send_control("stop")
 
 
 func _send_control(action: String) -> void:

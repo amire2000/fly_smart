@@ -181,7 +181,9 @@ def load_yaml_config(path: Path) -> StrikeConfig:
         runtime = replace(runtime, ttc_unavailable_descent_velocity_mps=_non_negative(ttc["ttc_unavailable_descent_velocity_mps"], "runtime.ttc.ttc_unavailable_descent_velocity_mps"))
     if "ttc_unavailable_pitch_boost_deg" in ttc:
         runtime = replace(runtime, ttc_unavailable_pitch_boost_deg=_non_negative(ttc["ttc_unavailable_pitch_boost_deg"], "runtime.ttc.ttc_unavailable_pitch_boost_deg"))
-    runtime = _merge(runtime, {name: value for name, value in ttc.items() if name not in {"alpha", "beta", "ttc_unavailable_descent_velocity_mps", "ttc_unavailable_pitch_boost_deg"}}, ("min_ttc_s", "commit_box_height_fraction", "min_growth_px_per_s"), "runtime.ttc")
+    if "ttc_activation_s" in ttc:
+        runtime = replace(runtime, ttc_activation_s=_non_negative(ttc["ttc_activation_s"], "runtime.ttc.ttc_activation_s"))
+    runtime = _merge(runtime, {name: value for name, value in ttc.items() if name not in {"alpha", "beta", "ttc_unavailable_descent_velocity_mps", "ttc_unavailable_pitch_boost_deg", "ttc_activation_s"}}, ("min_ttc_s", "commit_box_height_fraction", "min_growth_px_per_s"), "runtime.ttc")
     if "sample_hz" in barometer:
         runtime = replace(runtime, barometer_sample_hz=_positive(barometer["sample_hz"], "runtime.sensors.barometer.sample_hz"))
     if "altitude_noise_sigma_m" in barometer:
@@ -216,7 +218,9 @@ def load_yaml_config(path: Path) -> StrikeConfig:
     unknown = set(estimator) - {"alpha", "beta"}
     if unknown:
         raise ValueError(f"unknown runtime.vertical_estimator setting(s): {', '.join(sorted(unknown))}")
-    runtime = _merge(runtime, vertical, ("vertical_position_correction",), "runtime.vertical_control")
+    if "max_vertical_position_correction_mps" in vertical:
+        runtime = replace(runtime, max_vertical_position_correction_mps=_non_negative(vertical["max_vertical_position_correction_mps"], "runtime.vertical_control.max_vertical_position_correction_mps"))
+    runtime = _merge(runtime, {name: value for name, value in vertical.items() if name != "max_vertical_position_correction_mps"}, ("vertical_position_correction",), "runtime.vertical_control")
 
     for name, field_name in (("altitude", "altitude_pid_gains"), ("forward_speed", "forward_speed_pid_gains"), ("pitch_attitude", "pitch_attitude_pid_gains"), ("vertical_velocity", "vertical_velocity_pid_gains")):
         values = _mapping(pid.get(name), f"runtime.pid.{name}")

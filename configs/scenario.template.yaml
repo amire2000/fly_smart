@@ -59,7 +59,7 @@ runtime:
   takeoff:
     takeoff_max_climb_velocity_mps: 7.2       # Measured guard: 30 Hz sampling limits physical climb speed to about 8 m/s.
   flight_limits:
-    max_descent_velocity_mps: 4.5         # Maximum descent rate [m/s].
+    max_descent_velocity_mps: 5.5         # Maximum descent rate [m/s].
     max_climb_velocity_mps: 3.0           # Maximum climb rate [m/s].
     max_pitch_deg: 20.0                   # Maximum requested pitch [deg].
     takeoff_altitude_tolerance_m: 0.2     # Takeoff altitude-ready band [m].
@@ -72,7 +72,8 @@ runtime:
     beta: 0.05                            # Trust in bbox-scale-rate correction [0..1].
     min_growth_px_per_s: 0.01             # Minimum accepted approach growth [px/s].
     ttc_unavailable_descent_velocity_mps: 1.5  # Initial descent magnitude before TTC is valid; zero disables it.
-    ttc_unavailable_pitch_boost_deg: 0.0  # Extra pitch while bbox is visible but TTC is invalid; zero disables it.
+    ttc_unavailable_pitch_boost_deg: 5.0  # Extra pitch while bbox is visible but TTC is invalid; zero disables it.
+    ttc_activation_s: 8.0                 # Trust TTC for final descent only below this value [s].
   sensors:
     barometer:
       sample_hz: 40.0                     # BMP388 altitude update rate [Hz]; independent of the camera.
@@ -102,3 +103,4 @@ runtime:
       gains: [1.0, 0.0, 0.0]              # [kp, ki, kd]: descent-rate error to collective thrust.
   vertical_control:
     vertical_position_correction: 0.8     # Position error to vertical-velocity correction.
+    max_vertical_position_correction_mps: 2.0  # Bound position-error contribution [m/s].

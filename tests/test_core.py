@@ -8,6 +8,7 @@ from fly_smart.red_target_detector import detect_red_box
 from fly_smart.sensing import BarometerReading
 from fly_smart.ttc import BboxTtcTracker
 from fly_smart.trajectory import TtcDescentPlanner
+from fly_smart.trajectory import TrajectoryCommand
 
 
 def test_core_guidance_and_vision_do_not_need_simulation():
@@ -40,7 +41,19 @@ def test_ttc_unavailable_descent_feedforward_is_bounded_and_optional():
     planner = TtcDescentPlanner(config)
     assert planner.command(None, config.takeoff_altitude_m).vertical_velocity_mps == -1.5
     assert TtcDescentPlanner(replace(config, ttc_unavailable_descent_velocity_mps=0.0)).command(None, config.takeoff_altitude_m).vertical_velocity_mps == 0.0
+    long_ttc = planner.command(19.0, config.takeoff_altitude_m)
+    assert long_ttc.altitude_target_m == config.takeoff_altitude_m
+    assert long_ttc.vertical_velocity_mps == -config.ttc_unavailable_descent_velocity_mps
+    final_descent = planner.command(config.ttc_activation_s, config.takeoff_altitude_m)
+    assert final_descent.altitude_target_m == config.impact_altitude_m
     assert planner.command(1.0, config.takeoff_altitude_m).vertical_velocity_mps == -config.max_descent_velocity_mps
+
+
+def test_vertical_position_correction_is_bounded():
+    config = replace(MissionConfig(), vertical_position_correction=10.0, max_vertical_position_correction_mps=2.0)
+    guidance = StrikeGuidance(config)
+    correction = guidance._corrected_vertical_velocity(TrajectoryCommand(13.0, 0.0, config.impact_altitude_m), config.takeoff_altitude_m)
+    assert correction == -2.0
 
 
 def test_visible_target_without_ttc_gets_only_the_configured_pitch_boost():

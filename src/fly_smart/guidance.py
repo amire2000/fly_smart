@@ -196,11 +196,15 @@ class StrikeGuidance:
 
     def _corrected_vertical_velocity(self, trajectory: TrajectoryCommand, altitude_m: float) -> float:
         """Return the bounded descent target after altitude-error correction."""
+        correction = self.config.vertical_position_correction * (trajectory.altitude_target_m - altitude_m)
+        correction = max(
+            -self.config.max_vertical_position_correction_mps,
+            min(self.config.max_vertical_position_correction_mps, correction),
+        )
         return max(
             -self.config.max_descent_velocity_mps,
             min(
                 self.config.max_climb_velocity_mps,
-                trajectory.vertical_velocity_mps
-                + self.config.vertical_position_correction * (trajectory.altitude_target_m - altitude_m),
+                trajectory.vertical_velocity_mps + correction,
             ),
         )
