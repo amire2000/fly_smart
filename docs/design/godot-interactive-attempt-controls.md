@@ -1,9 +1,10 @@
 # Godot interactive attempt controls
 
-`--interactive` opens the live telemetry figure paused with Start and Restart
-buttons. Start advances PyBullet; Restart pauses, restores all Python flight
-state and the received Godot poses, clears the collision latch, and waits for
-Start again. The OpenCV frame viewer stays responsive while paused.
+`--interactive` starts paused with `▶` and `↻` buttons in Godot's lower-left
+toolbar. Godot sends the button action to Python over UDP; Start advances
+PyBullet, while Reset pauses, restores all Python flight state and the received
+Godot poses, clears the collision latch, and waits for Start again. The OpenCV
+FPV overlay remains visible while paused.
 
 Each reset begins a new numbered attempt folder below the run directory. The
 attempt owns its video, CSV, plot, and summary. Python remains responsible for

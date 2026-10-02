@@ -13,7 +13,7 @@ uv run fly-smart --godot --headless
 ```
 
 Godot renders a camera fixed to the PyBullet-driven drone and its red 2 m
-target cube. Python remains responsible for OpenCV red detection, TTC
+target cube. Python remains responsible for red detection, TTC
 filtering, guidance, motor commands, and PyBullet flight forces. For a
 `--godot` run, Godot sends target and building collision events back to Python;
 the target completes the mission and a building aborts it.
@@ -21,5 +21,5 @@ the target completes the mission and a building aborts it.
 In the Godot window, hold the right mouse button and drag to orbit the drone;
 scroll to zoom. These controls affect only the spectator view, not FPV output.
 
-The interactive Python task opens the telemetry plot paused. Use **Start** to
-run and **Restart** to reset the Python and Godot poses before starting again.
+The interactive Python task starts paused. Use the **▶** and **↻** buttons in
+Godot's lower-left toolbar to start or reset both Python and Godot poses.

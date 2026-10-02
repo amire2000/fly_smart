@@ -7,7 +7,6 @@ import json
 from math import isclose
 from pathlib import Path
 
-import cv2
 import pybullet as p
 
 from .config import SimulationConfig, StrikeConfig
@@ -69,9 +68,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--godot", action="store_true", help="Use Godot's FPV camera via Linux shared memory")
-    parser.add_argument("--show-godot-frame", action="store_true", help="Show Godot's annotated FPV frame in OpenCV")
     parser.add_argument("--show-plots", action="store_true", help="Show live telemetry plots without PyBullet's GUI")
-    parser.add_argument("--interactive", action="store_true", help="Wait for Start and allow Restart from the telemetry window")
+    parser.add_argument("--interactive", action="store_true", help="Wait for Start and allow Reset from Godot")
     parser.add_argument("--self-check", action="store_true")
     parser.add_argument("--max-seconds", type=float, default=35.0)
     parser.add_argument("--output-root", type=Path, default=Path("outputs/ttc_runs"))
@@ -106,11 +104,10 @@ def main() -> None:
             summary = run_dir / "summary.json"
             bridge = GodotBridge() if args.godot else None
             scenario_name = args.config.stem if args.config else "default"
-            result = StrikeSimulation(config, godot=bridge, scenario_name=scenario_name).run(not args.headless and not args.godot, args.max_seconds, None if args.no_video else video, None if args.no_plot else plot, None if args.no_csv else csv, summary, args.show_godot_frame, args.show_plots, args.interactive)
+            result = StrikeSimulation(config, godot=bridge, scenario_name=scenario_name).run(not args.headless and not args.godot, args.max_seconds, None if args.no_video else video, None if args.no_plot else plot, None if args.no_csv else csv, summary, args.show_plots, args.interactive)
             print(f"run folder: {run_dir}")
             if args.headless:
                 assert result.success, f"Strike failed; impact speed was {result.impact_speed_mps:.1f} m/s"
     finally:
-        cv2.destroyAllWindows()
         if p.isConnected(client):
             p.disconnect(client)

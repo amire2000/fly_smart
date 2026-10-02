@@ -9,6 +9,7 @@ const HEADER_BYTES := 32
 const FRAME_BYTES := WIDTH * HEIGHT * 3  # tightly packed RGB8
 const POSE_PORT := 9100
 const COLLISION_PORT := 9101
+const CONTROL_PORT := 9102
 const FPV_MOUNT := Transform3D(Basis(Vector3.UP, -PI / 2.0), Vector3(0.35, 0.05, 0.0))
 const SPECTATOR_TURN_SPEED := 0.01
 
@@ -21,6 +22,9 @@ var _collision_sensor: Area3D
 var _shm: FileAccess
 var _pose_socket := PacketPeerUDP.new()
 var _collision_socket := PacketPeerUDP.new()
+var _control_socket := PacketPeerUDP.new()
+var _bbox_panel: Panel
+var _telemetry_label: Label
 var _active_slot := 0
 var _sequence := 0
 var _latest_pose: Dictionary = {}
@@ -36,6 +40,7 @@ func _ready() -> void:
 	_build_target()
 	_build_cameras()
 	_collision_socket.connect_to_host("127.0.0.1", COLLISION_PORT)
+	_control_socket.connect_to_host("127.0.0.1", CONTROL_PORT)
 	var bind_error := _pose_socket.bind(POSE_PORT, "127.0.0.1")
 	if bind_error != OK:
 		push_error("Cannot listen for PyBullet poses on UDP %d: %s" % [POSE_PORT, bind_error])
@@ -143,6 +148,7 @@ func _receive_latest_pose() -> void:
 			_collision_reported = false
 		_apply_pose(value.get("drone"), _drone)
 		_apply_pose(value.get("target"), _target)
+		_update_fpv_overlay(value.get("overlay", {}))
 
 
 func _apply_pose(raw_pose: Variant, node: Node3D) -> void:
@@ -204,6 +210,24 @@ func _build_cameras() -> void:
 	preview.texture = _fpv_viewport.get_texture()
 	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	overlay.add_child(preview)
+	_bbox_panel = Panel.new()
+	_bbox_panel.name = "RedTargetBoundingBox"
+	_bbox_panel.visible = false
+	var bbox_style := StyleBoxFlat.new()
+	bbox_style.bg_color = Color(0, 0, 0, 0)
+	bbox_style.border_color = Color(1.0, 0.82, 0.0, 0.95)
+	bbox_style.set_border_width_all(2)
+	_bbox_panel.add_theme_stylebox_override("panel", bbox_style)
+	overlay.add_child(_bbox_panel)
+
+	_telemetry_label = Label.new()
+	_telemetry_label.name = "FPVTelemetry"
+	_telemetry_label.position = Vector2(18, 18)
+	_telemetry_label.add_theme_font_size_override("font_size", 14)
+	_telemetry_label.add_theme_color_override("font_color", Color.WHITE)
+	_telemetry_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_telemetry_label.add_theme_constant_override("outline_size", 4)
+	overlay.add_child(_telemetry_label)
 
 	var axes := Label.new()
 	axes.name = "WorldAxes"
@@ -215,6 +239,69 @@ func _build_cameras() -> void:
 	axes.offset_right = -16
 	axes.offset_bottom = 80
 	overlay.add_child(axes)
+
+	var controls := HBoxContainer.new()
+	controls.name = "SimulationControls"
+	controls.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	controls.offset_left = 16
+	controls.offset_top = -62
+	controls.offset_right = 136
+	controls.offset_bottom = -14
+	overlay.add_child(controls)
+	_add_control_button(controls, "▶", "Start simulation", "start")
+	_add_control_button(controls, "↻", "Reset simulation", "reset")
+
+
+func _add_control_button(parent: Control, icon: String, tooltip: String, action: String) -> void:
+	var button := Button.new()
+	button.text = icon
+	button.tooltip_text = tooltip
+	button.custom_minimum_size = Vector2(52, 44)
+	button.add_theme_font_size_override("font_size", 22)
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.05, 0.08, 0.12, 0.9)
+	normal.border_color = Color(0.28, 0.42, 0.58, 0.95)
+	normal.set_border_width_all(1)
+	normal.set_corner_radius_all(4)
+	button.add_theme_stylebox_override("normal", normal)
+	var hover := normal.duplicate()
+	hover.bg_color = Color(0.08, 0.28, 0.45, 0.95)
+	button.add_theme_stylebox_override("hover", hover)
+	button.pressed.connect(_send_control.bind(action))
+	parent.add_child(button)
+
+
+func _send_control(action: String) -> void:
+	_control_socket.put_packet(JSON.stringify({"event": "simulation_control", "action": action}).to_utf8_buffer())
+
+
+func _update_fpv_overlay(raw_overlay: Variant) -> void:
+	if not raw_overlay is Dictionary:
+		return
+	var overlay: Dictionary = raw_overlay
+	var bbox: Variant = overlay.get("bbox")
+	if bbox is Array and bbox.size() == 4:
+		_bbox_panel.visible = true
+		_bbox_panel.position = Vector2(10 + float(bbox[0]) * 0.75, 10 + float(bbox[1]) * 0.75)
+		_bbox_panel.size = Vector2(float(bbox[2]) * 0.75, float(bbox[3]) * 0.75)
+	else:
+		_bbox_panel.visible = false
+	_telemetry_label.text = "phase: %s\npitch: %s deg   thrust: %s N\nscale: %s px   growth: %s px/s\nTTC: %s s\nvx command: %s m/s   vz command: %s m/s" % [
+			str(overlay.get("phase", "takeoff")),
+			_format_overlay_value(overlay.get("pitch_deg")),
+			_format_overlay_value(overlay.get("thrust_n")),
+			_format_overlay_value(overlay.get("bbox_scale_px")),
+			_format_overlay_value(overlay.get("bbox_growth_px_s")),
+			_format_overlay_value(overlay.get("ttc_s")),
+			_format_overlay_value(overlay.get("command_vx_mps")),
+			_format_overlay_value(overlay.get("command_vz_mps")),
+		]
+
+
+func _format_overlay_value(value: Variant) -> String:
+	if value == null:
+		return "--"
+	return "%.1f" % float(value)
 
 
 func _add_box(parent: Node, pos: Vector3, size: Vector3, color: Color) -> void:

@@ -1,7 +1,7 @@
 """PyBullet adapter that composes sensing, TTC, guidance, views, and telemetry."""
 
 from dataclasses import dataclass
-from math import sqrt
+from math import degrees, sqrt
 from pathlib import Path
 import time
 
@@ -12,7 +12,7 @@ from .drone_physics import PhysicsEngine, clamp
 from ..common.flight_control import AttitudeController
 from .pybullet_sensors import read_imu
 from .pybullet_utils import create_world, draw_force_vectors, reset_drone
-from .gui_helper import SimulationControls, add_simulation_buttons
+from .gui_helper import SimulationControls
 from .forward_camera import add_environment_buildings, add_red_cube, forward_rgb
 from .godot_bridge import GodotBridge
 from ..red_target_detector import detect_red_box
@@ -46,7 +46,7 @@ class StrikeSimulation:
         self.godot = godot
         self.scenario_name = scenario_name
 
-    def run(self, gui: bool, max_seconds: float, video: Path | None, plot: Path | None, csv: Path | None = None, summary: Path | None = None, show_godot_frame: bool = False, show_plots: bool = False, interactive: bool = False) -> StrikeResult:
+    def run(self, gui: bool, max_seconds: float, video: Path | None, plot: Path | None, csv: Path | None = None, summary: Path | None = None, show_plots: bool = False, interactive: bool = False) -> StrikeResult:
         config = self.config
         model = self.scene.drone_model
         settings = self.scene.physics_settings
@@ -80,8 +80,10 @@ class StrikeSimulation:
         live_plot = self._live_plot(gui or show_plots or interactive, plot, config, self.scene)
         if interactive and live_plot:
             live_plot.figure.subplots_adjust(bottom=0.08)
-        controls: SimulationControls | None = add_simulation_buttons(live_plot.figure, 0.01) if interactive and live_plot else None
-        show_frame = gui or show_godot_frame
+        controls: SimulationControls | None = SimulationControls() if interactive else None
+        if controls and live_plot:
+            live_plot.figure.canvas.mpl_connect("close_event", lambda _: controls.request_exit())
+        show_frame = gui
         if show_frame:
             cv2.namedWindow("TTC diagonal strike", cv2.WINDOW_NORMAL)
             cv2.moveWindow("TTC diagonal strike", *config.opencv_window_position_px)
@@ -142,8 +144,9 @@ class StrikeSimulation:
                 refresh_plot(live_plot, log)
             if self.godot:
                 self.godot.clear_collision_events()
+                self.godot.clear_control_events()
                 target_position, target_orientation = p.getBasePositionAndOrientation(cube)
-                self.godot.publish_pose(config.launch_position, (0, 0, 0, 1), target_position, target_orientation, reset=True)
+                self.godot.publish_pose(config.launch_position, (0, 0, 0, 1), target_position, target_orientation, reset=True, overlay={"bbox": None})
 
         reset_attempt()
 
@@ -167,6 +170,16 @@ class StrikeSimulation:
                 return None
             return finish(False, command.phase.value, now_s, "PyBullet physics server closed")
 
+        def poll_control() -> None:
+            """Apply the newest Godot toolbar command to the local state."""
+            if not controls or not self.godot:
+                return
+            action = self.godot.read_control_event()
+            if action == "start":
+                controls.start()
+            elif action == "reset":
+                controls.request_reset()
+
         try:
             step = 0
             while step < round(max_seconds / time_step):
@@ -175,16 +188,20 @@ class StrikeSimulation:
                     while not controls.running:
                         if controls.exit_requested:
                             return finish(False, command.phase.value, step * time_step, "Interactive session closed")
+                        poll_control()
                         if controls.consume_reset():
                             reset_attempt()
                             step = 0
                         plt.pause(0.02)
                         if show_frame:
                             cv2.waitKey(1)
+                    poll_control()
                     if controls.consume_reset():
                         reset_attempt()
                         step = 0
                         continue
+                if controls:
+                    poll_control()
                 now_s = step * time_step
                 disconnected = finish_if_disconnected(now_s)
                 if disconnected:
@@ -202,14 +219,32 @@ class StrikeSimulation:
                     if self.godot:
                         drone_position, drone_orientation = p.getBasePositionAndOrientation(drone)
                         target_position, target_orientation = p.getBasePositionAndOrientation(cube)
-                        self.godot.publish_pose(drone_position, drone_orientation, target_position, target_orientation)
                         godot_frame = self.godot.read_frame()
+                        box = None
                         if godot_frame is not None:
                             frame, box = detect_red_box(godot_frame)
                             if writer:
                                 writer.write(cv2.resize(frame, config.environment_size_px))
                             target_visible = box is not None
                             observation = tracker.update(box, now_s)
+                        trajectory = command.trajectory
+                        self.godot.publish_pose(
+                            drone_position,
+                            drone_orientation,
+                            target_position,
+                            target_orientation,
+                            overlay={
+                                "bbox": list(box) if box else None,
+                                "phase": command.phase.value,
+                                "pitch_deg": degrees(command.pitch_target_rad),
+                                "thrust_n": command.thrust_n,
+                                "bbox_scale_px": observation.scale_px if observation else None,
+                                "bbox_growth_px_s": observation.scale_growth_px_s if observation else None,
+                                "ttc_s": observation.ttc_s if observation else None,
+                                "command_vx_mps": trajectory.forward_velocity_mps if trajectory else None,
+                                "command_vz_mps": trajectory.vertical_velocity_mps if trajectory else None,
+                            },
+                        )
                     else:
                         if writer:
                             writer.write(cv2.cvtColor(environment_rgb(renderer, config), cv2.COLOR_RGB2BGR))

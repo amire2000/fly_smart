@@ -26,7 +26,7 @@
     {
       "label": "Run Fly Smart with Godot",
       "type": "shell",
-      "command": "uv run fly-smart --godot --headless --show-godot-frame --show-plots --interactive --config configs/scenario.yaml",
+      "command": "uv run fly-smart --godot --headless --show-plots --interactive --config configs/scenario.yaml",
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     },

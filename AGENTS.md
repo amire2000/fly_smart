@@ -27,6 +27,10 @@ production core.
   inputs, side effects, or return value are not obvious from their signature.
 - Save every design and implementation plan in `docs/design/` before making
   the related code changes.
+- Maintain [`docs/design/README.md`](docs/design/README.md) as the index for
+  every design document. Add each document with a brief description and the
+  commit that implemented it; use `pending` until that implementation is
+  committed.
 - Maintain a release document for material changes between versions. Organize
   every release entry into separate **Logic** and **Simulation** sections;
   create the document only when a release is being prepared.
