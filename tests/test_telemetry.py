@@ -65,13 +65,32 @@ def test_ttc_plot_shows_raw_filtered_seconds_and_activation_gate():
         log.append(time_s, (time_s, 0.0, 15.0), (1.0, 0.0, 0.0), command, observation=TtcObservation((0, 0, 10, 10), 10.0, 1.0, raw_ttc_s, 1.0, ttc_s))
     refresh_plot(plot, log)
     assert plot.ttc_axis.get_ylabel() == "TTC (s)"
-    assert list(plot.lines[17].get_ydata()) == [12.0, 7.0]
-    assert list(plot.lines[18].get_ydata()) == [11.0, 6.5]
-    assert plot.ttc_gate_line.get_ydata()[0] == config.ttc_activation_s
+    assert list(plot.lines[17].get_ydata())[1] == 7.0
+    assert list(plot.lines[18].get_ydata())[1] == 6.5
+    assert list(plot.lines[17].get_ydata())[0] != list(plot.lines[17].get_ydata())[0]
+    assert list(plot.lines[18].get_ydata())[0] != list(plot.lines[18].get_ydata())[0]
+    assert list(plot.ttc_gate_line.get_xdata()) == [0.1, 0.1]
     assert plot.alignment_axis.get_ylabel() == "center error (px)"
     assert list(plot.lines[19].get_ydata()) == [-315.0, -315.0]
     assert list(plot.lines[20].get_ydata()) == [-235.0, -235.0]
     assert list(plot.lines[23].get_ydata()) == list(log.pitch_compensated_dy_deg)
+    plt.close(plot.figure)
+
+
+def test_plot_masks_late_growth_spikes_but_keeps_gate_markers():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    config = StrikeConfig()
+    plot = make_plot(config, config.simulation)
+    log = FlightLog()
+    command = GuidanceCommand(FlightPhase.TRACK, 1.0, 0.0, TrajectoryCommand(13.0, -1.5, 15.0))
+    for time_s, growth in ((0.0, 2.0), (0.1, 3.0), (0.2, 10000.0)):
+        log.append(time_s, (time_s, 0.0, 15.0), (1.0, 0.0, 0.0), command, observation=TtcObservation((0, 0, 10, 10), 10.0, growth, 5.0, growth, 5.0))
+    refresh_plot(plot, log)
+    assert list(plot.growth_gate_line.get_xdata()) == [0.0, 0.0]
+    assert list(plot.lines[16].get_ydata())[-1] != 10000.0
     plt.close(plot.figure)
 
 

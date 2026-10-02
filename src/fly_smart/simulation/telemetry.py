@@ -189,6 +189,8 @@ class TelemetryPlot:
     barometer_axis: object
     target_marker: object
     ttc_gate_line: object
+    growth_gate_line: object
+    ttc_activation_s: float
     alignment_zero_px: object
     alignment_zero_angle: object
     lines: tuple[object, ...]
@@ -245,13 +247,14 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
 
     raw_growth_line, = growth_axis.plot([], [], "--", color="#f97316", alpha=0.8, label="raw bbox growth")
     filtered_growth_line, = growth_axis.plot([], [], color="#2563eb", linewidth=2, label="alpha-beta estimated growth")
+    growth_gate_line = growth_axis.axvline(float("nan"), color="#b45309", linestyle=":", label="first valid growth")
     growth_axis.set(xlabel="time (s)", ylabel="growth (px/s)", title="Alpha-beta bbox growth filter")
     growth_axis.grid(alpha=0.25)
     growth_axis.legend()
 
     raw_ttc_line, = ttc_axis.plot([], [], "--", color="#f97316", alpha=0.8, label="raw TTC")
     filtered_ttc_line, = ttc_axis.plot([], [], color="#2563eb", linewidth=2, label="filtered TTC")
-    ttc_gate_line = ttc_axis.axhline(config.ttc_activation_s, color="#b45309", linestyle=":", label=f"activation gate ({config.ttc_activation_s:g} s)")
+    ttc_gate_line = ttc_axis.axvline(float("nan"), color="#b45309", linestyle=":", label=f"TTC activation ({config.ttc_activation_s:g} s)")
     ttc_axis.set(xlabel="time (s)", ylabel="TTC (s)", title="Time-to-contact estimate")
     ttc_axis.grid(alpha=0.25)
     ttc_axis.legend()
@@ -295,6 +298,8 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
         barometer_axis,
         target_marker,
         ttc_gate_line,
+        growth_gate_line,
+        config.ttc_activation_s,
         alignment_zero_px,
         alignment_zero_angle,
         (vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, target_slope_line, measured_slope_line, command_vx_line, command_vz_line, pid_vz_target_line, camera_dy_correction_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line),
@@ -345,6 +350,29 @@ def _refresh_phase_backgrounds(plot: TelemetryPlot, log: FlightLog) -> None:
             plot.collision_artists.append(axis.axvline(log.collision_time_s, color="#b45309", linestyle="--", linewidth=1.2, label="collision"))
 
 
+def _first_time(values: list[float], times: list[float], predicate) -> float | None:
+    """Return the first sample time satisfying a display gate."""
+    for time, value in zip(times, values):
+        if isfinite(value) and predicate(value):
+            return time
+    return None
+
+
+def _growth_display_ceiling(*series: list[float]) -> float:
+    """Return a robust display ceiling without changing recorded telemetry."""
+    values = sorted(abs(value) for samples in series for value in samples if isfinite(value))
+    if not values:
+        return 1.0
+    index = len(values) // 2 if len(values) < 20 else int(0.95 * (len(values) - 1))
+    return max(1.0, values[max(0, index)])
+
+
+def _set_gate_line(line: object, time_s: float | None) -> None:
+    """Show one vertical gate marker or keep it hidden when no gate was reached."""
+    value = float("nan") if time_s is None else time_s
+    line.set_xdata([value, value])
+
+
 def refresh_plot(plot: TelemetryPlot, log: FlightLog, autoscale: bool = True, max_points: int | None = None) -> None:
     """Update the figure, optionally limiting rendered history and rescaling."""
     vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, target_slope_line, measured_slope_line, command_vx_line, command_vz_line, pid_vz_target_line, camera_dy_correction_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line = plot.lines
@@ -376,10 +404,16 @@ def refresh_plot(plot: TelemetryPlot, log: FlightLog, autoscale: bool = True, ma
         return [value if active and isfinite(value) else float("nan") for value, active in zip(values, tracking)]
 
     camera_dy_correction_line.set_data(times, tracking_values(recent(log.camera_dy_correction_mps)))
-    raw_growth_line.set_data(times, tracking_values(recent(log.raw_bbox_growth_px_s)))
-    filtered_growth_line.set_data(times, tracking_values(recent(log.bbox_growth_px_s)))
-    raw_ttc_line.set_data(times, tracking_values(recent(log.raw_ttc_s)))
-    filtered_ttc_line.set_data(times, tracking_values(recent(log.ttc_s)))
+    growth_ceiling = _growth_display_ceiling(log.raw_bbox_growth_px_s, log.bbox_growth_px_s)
+    growth_values = lambda values: [value if active and isfinite(value) and abs(value) <= growth_ceiling else float("nan") for value, active in zip(values, tracking)]
+    raw_growth_line.set_data(times, growth_values(recent(log.raw_bbox_growth_px_s)))
+    filtered_growth_line.set_data(times, growth_values(recent(log.bbox_growth_px_s)))
+    ttc_gate_time = _first_time(log.ttc_s, log.time_s, lambda value: value <= plot.ttc_activation_s)
+    ttc_values = lambda values: [value if active and isfinite(value) and ttc_gate_time is not None and time >= ttc_gate_time else float("nan") for value, active, time in zip(values, tracking, times)]
+    raw_ttc_line.set_data(times, ttc_values(recent(log.raw_ttc_s)))
+    filtered_ttc_line.set_data(times, ttc_values(recent(log.ttc_s)))
+    _set_gate_line(plot.ttc_gate_line, ttc_gate_time)
+    _set_gate_line(plot.growth_gate_line, _first_time(log.bbox_growth_px_s, log.time_s, lambda value: True))
     dx_line.set_data(times, tracking_values(recent(log.bbox_center_dx_px)))
     dy_line.set_data(times, tracking_values(recent(log.bbox_center_dy_px)))
     dx_angle_line.set_data(times, tracking_values(recent(log.bbox_center_dx_deg)))
