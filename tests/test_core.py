@@ -2,15 +2,18 @@ import numpy as np
 from dataclasses import replace
 from math import degrees
 
-from fly_smart.guidance import FlightPhase, GuidanceInput, StrikeGuidance
+from fly_smart.guidance import FlightPhase, GuidanceInput, StrikeGuidance, VerticalControlMode
 from fly_smart.mission import MissionConfig
-from fly_smart.red_target_detector import detect_red_box
+from fly_smart.red_target_detector import detect_red_box as legacy_detect_red_box
+from fly_smart.trackers.red_target_detector import detect_red_box
 from fly_smart.sensing import BarometerReading
-from fly_smart.ttc import BboxTtcTracker
+from fly_smart.ttc import BboxTtcTracker, TtcObservation
 from fly_smart.trajectory import TtcDescentPlanner
+from fly_smart.trajectory import TrajectoryCommand
 
 
 def test_core_guidance_and_vision_do_not_need_simulation():
+    assert legacy_detect_red_box is detect_red_box
     config = MissionConfig()
     tracker = BboxTtcTracker(config)
     assert tracker.update((0, 0, 20, 20), 0.0) is None
@@ -25,13 +28,34 @@ def test_core_guidance_and_vision_do_not_need_simulation():
     _, box = detect_red_box(frame)
     assert box == (20, 20, 50, 50)
 
+    frame[:, :] = (20, 89, 235)
+    _, box = detect_red_box(frame)
+    assert box is None
+
+    small = np.zeros((40, 40, 3), dtype=np.uint8)
+    small[15:23, 15:23] = (255, 0, 0)
+    _, box = detect_red_box(small)
+    assert box == (15, 15, 8, 8)
+
 
 def test_ttc_unavailable_descent_feedforward_is_bounded_and_optional():
     config = MissionConfig()
     planner = TtcDescentPlanner(config)
     assert planner.command(None, config.takeoff_altitude_m).vertical_velocity_mps == -1.5
     assert TtcDescentPlanner(replace(config, ttc_unavailable_descent_velocity_mps=0.0)).command(None, config.takeoff_altitude_m).vertical_velocity_mps == 0.0
+    long_ttc = planner.command(19.0, config.takeoff_altitude_m)
+    assert long_ttc.altitude_target_m == config.takeoff_altitude_m
+    assert long_ttc.vertical_velocity_mps == -config.ttc_unavailable_descent_velocity_mps
+    final_descent = planner.command(config.ttc_activation_s, config.takeoff_altitude_m)
+    assert final_descent.altitude_target_m == config.impact_altitude_m
     assert planner.command(1.0, config.takeoff_altitude_m).vertical_velocity_mps == -config.max_descent_velocity_mps
+
+
+def test_vertical_position_correction_is_bounded():
+    config = replace(MissionConfig(), vertical_position_correction=10.0, max_vertical_position_correction_mps=2.0)
+    guidance = StrikeGuidance(config)
+    correction = guidance._corrected_vertical_velocity(TrajectoryCommand(13.0, 0.0, config.impact_altitude_m), config.takeoff_altitude_m)
+    assert correction == -2.0
 
 
 def test_visible_target_without_ttc_gets_only_the_configured_pitch_boost():
@@ -54,3 +78,48 @@ def test_visible_target_without_ttc_gets_only_the_configured_pitch_boost():
     unboosted.update(GuidanceInput(0.0, reading, observation, observation, True, False))
     unavailable = unboosted.update(GuidanceInput(0.1, reading, None, observation, True, False))
     assert degrees(unavailable.pitch_target_rad) == 20.0
+
+
+def test_camera_dy_controls_no_ttc_descent_and_ttc_takes_over():
+    config = MissionConfig()
+    reading = BarometerReading(config.takeoff_altitude_m, 0.0)
+    observation = TtcObservation((0, 0, 30, 30), 30.0, 1.0, 12.0, 1.0, 12.0)
+    guidance = StrikeGuidance(config)
+    guidance.update(GuidanceInput(0.0, reading, observation, observation, True, False))
+
+    dy_command = guidance.update(GuidanceInput(0.1, reading, observation, observation, True, False, vertical_alignment_error_deg=20.0))
+    assert dy_command.vertical_control_mode == VerticalControlMode.DY
+    assert dy_command.camera_dy_correction_mps == -config.camera_dy_max_correction_mps
+    assert dy_command.vertical_velocity_target_mps < -config.ttc_unavailable_descent_velocity_mps
+
+    valid_observation = TtcObservation((0, 0, 30, 30), 30.0, 1.0, 6.0, 1.0, 6.0)
+    ttc_command = guidance.update(GuidanceInput(0.2, reading, valid_observation, valid_observation, True, False, vertical_alignment_error_deg=20.0))
+    assert ttc_command.vertical_control_mode == VerticalControlMode.TTC
+    assert ttc_command.camera_dy_correction_mps == 0.0
+
+
+def test_camera_dy_deadband_and_direction_are_bounded():
+    config = MissionConfig()
+    guidance = StrikeGuidance(config)
+    assert guidance._camera_dy_correction(config.camera_dy_deadband_deg) == 0.0
+    assert guidance._camera_dy_correction(-20.0) == config.camera_dy_max_correction_mps
+
+
+def test_dy_mode_targets_a_forward_speed_proportional_descent():
+    config = MissionConfig()
+    reading = BarometerReading(config.takeoff_altitude_m, 0.0)
+    observation = TtcObservation((0, 0, 30, 30), 30.0, 1.0, 12.0, 1.0, 12.0)
+    guidance = StrikeGuidance(config)
+    guidance.update(GuidanceInput(0.0, reading, observation, observation, True, False))
+    command = guidance.update(GuidanceInput(0.1, reading, observation, observation, True, False, forward_velocity_mps=10.0))
+    assert command.vertical_control_mode == VerticalControlMode.DY
+    assert command.path_slope_target_m_per_m == 0.5
+    assert command.trajectory.vertical_velocity_mps == -5.0
+
+    slow = guidance.update(GuidanceInput(0.2, reading, observation, observation, True, False, forward_velocity_mps=0.0))
+    assert slow.trajectory.vertical_velocity_mps == -config.ttc_unavailable_descent_velocity_mps
+
+    valid = TtcObservation((0, 0, 30, 30), 30.0, 1.0, 6.0, 1.0, 6.0)
+    terminal = guidance.update(GuidanceInput(0.3, reading, valid, valid, True, False, forward_velocity_mps=10.0))
+    assert terminal.vertical_control_mode == VerticalControlMode.TTC
+    assert terminal.path_slope_target_m_per_m is None

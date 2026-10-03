@@ -13,15 +13,23 @@ import numpy as np
 
 HEADER = struct.Struct("<4s7I")
 HEADER_BYTES = HEADER.size
+COLLISION_PORT = 9101
+CONTROL_PORT = 9102
 
 
 class GodotBridge:
     """Publish PyBullet poses and read the newest Godot RGB camera frame."""
 
-    def __init__(self, path: Path = Path("/dev/shm/fly_smart_fpv.rgb"), port: int = 9100) -> None:
+    def __init__(self, path: Path = Path("/dev/shm/fly_smart_fpv.rgb"), port: int = 9100, event_port: int = COLLISION_PORT, control_port: int = CONTROL_PORT) -> None:
         self.path = path
         self.destination = ("127.0.0.1", port)
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._event_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._event_socket.bind(("127.0.0.1", event_port))
+        self._event_socket.setblocking(False)
+        self._control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self._control_socket.bind(("127.0.0.1", control_port))
+        self._control_socket.setblocking(False)
         self._file = None
         self._mapping = None
 
@@ -32,12 +40,18 @@ class GodotBridge:
         self._file = self.path.open("rb")
         self._mapping = mmap.mmap(self._file.fileno(), 0, access=mmap.ACCESS_READ)
 
-    def publish_pose(self, drone_position, drone_orientation, target_position, target_orientation) -> None:
+    def publish_pose(self, drone_position, drone_orientation, target_position, target_orientation, reset: bool = False, overlay: dict | None = None, target_control: dict | None = None) -> None:
         """Send the latest PyBullet poses; Godot drains old packets each frame."""
         payload = {
             "drone": {"p": list(drone_position), "q": list(drone_orientation)},
             "target": {"p": list(target_position), "q": list(target_orientation)},
         }
+        if reset:
+            payload["reset"] = True
+        if overlay is not None:
+            payload["overlay"] = overlay
+        if target_control is not None:
+            payload["target_control"] = target_control
         self._socket.sendto(json.dumps(payload, separators=(",", ":")).encode("utf-8"), self.destination)
 
     def read_frame(self) -> np.ndarray | None:
@@ -55,6 +69,55 @@ class GodotBridge:
             return None
         return np.frombuffer(data, dtype=np.uint8).reshape(height, width, channels).copy()
 
+    def read_collision_event(self) -> str | None:
+        """Return Godot's newest target or obstacle collision event, if any."""
+        event = None
+        while True:
+            try:
+                payload, _ = self._event_socket.recvfrom(1024)
+            except BlockingIOError:
+                return event
+            try:
+                value = json.loads(payload)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            kind = value.get("kind") if isinstance(value, dict) else None
+            if isinstance(value, dict) and value.get("event") == "collision" and kind in {"target", "obstacle"}:
+                event = kind
+
+    def clear_collision_events(self) -> None:
+        """Discard stale Godot collision events before a restarted attempt."""
+        while True:
+            try:
+                self._event_socket.recvfrom(1024)
+            except BlockingIOError:
+                return
+
+    def read_control_event(self) -> dict | None:
+        """Return the newest valid Godot command, including its selection."""
+        event = None
+        while True:
+            try:
+                payload, _ = self._control_socket.recvfrom(1024)
+            except BlockingIOError:
+                return event
+            try:
+                value = json.loads(payload)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(value, dict) and value.get("event") == "simulation_control" and value.get("action") in {"start", "reset", "stop"}:
+                event = {"action": value["action"]}
+                if "target_distance_m" in value:
+                    event["target_distance_m"] = value["target_distance_m"]
+
+    def clear_control_events(self) -> None:
+        """Discard stale UI commands before an interactive attempt starts."""
+        while True:
+            try:
+                self._control_socket.recvfrom(1024)
+            except BlockingIOError:
+                return
+
     def close(self) -> None:
         if self._mapping is not None:
             self._mapping.close()
@@ -63,6 +126,8 @@ class GodotBridge:
             self._file.close()
             self._file = None
         self._socket.close()
+        self._event_socket.close()
+        self._control_socket.close()
 
     def __enter__(self) -> "GodotBridge":
         self.open()

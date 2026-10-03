@@ -26,7 +26,7 @@ class TtcDescentPlanner:
         mission supplies the altitude at which contact should occur.
         """
         altitude_error_m = self.config.impact_altitude_m - current_altitude_m
-        if ttc_s is None:
+        if ttc_s is None or ttc_s > self.config.ttc_activation_s:
             # Start shedding takeoff overshoot before visual TTC is reliable.
             vertical_velocity_mps = -self.config.ttc_unavailable_descent_velocity_mps
             altitude_target_m = self.config.takeoff_altitude_m

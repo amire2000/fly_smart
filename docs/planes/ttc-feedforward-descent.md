@@ -40,3 +40,15 @@ TTC grows near the target.
 Validate the pitch fallback with visible/no-TTC, valid-TTC, and target-lost
 inputs. In the seven-inch headless run, confirm commanded pitch remains at or
 below `25 deg` and the strike succeeds.
+
+## Path-slope feed-forward
+
+While DY mode is active, replace the fixed no-TTC descent baseline with a
+forward-speed-proportional target:
+
+`vz_nominal = -max(ttc_unavailable_descent_velocity_mps,
+                   ttc_unavailable_descent_slope_m_per_m * forward_speed)`.
+
+The existing camera-`dy` correction is then added, followed by the existing
+altitude-position correction and shared descent/climb limits. Valid TTC mode
+continues to use the TTC planner unchanged. The initial slope is `0.50 m/m`.

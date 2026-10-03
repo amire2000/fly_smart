@@ -8,24 +8,43 @@ const FPS := 15.0
 const HEADER_BYTES := 32
 const FRAME_BYTES := WIDTH * HEIGHT * 3  # tightly packed RGB8
 const POSE_PORT := 9100
+const COLLISION_PORT := 9101
+const CONTROL_PORT := 9102
+const FPV_MOUNT := Transform3D(Basis(Vector3.UP, -PI / 2.0), Vector3(0.35, 0.05, 0.0))
+const SPECTATOR_TURN_SPEED := 0.01
+const TARGET_DISTANCE_PRESETS_M := [30, 40, 50, 60, 70, 80]
 
 var _drone: Node3D
-var _spinning_body: Node3D
+var _target: Node3D
 var _fpv_viewport: SubViewport
 var _fpv_camera: Camera3D
+var _display_camera: Camera3D
+var _collision_sensor: Area3D
 var _shm: FileAccess
 var _pose_socket := PacketPeerUDP.new()
+var _collision_socket := PacketPeerUDP.new()
+var _control_socket := PacketPeerUDP.new()
+var _bbox_panel: Panel
+var _telemetry_label: Label
+var _rtf_label: Label
+var _target_distance: OptionButton
+var _reset_popup: PopupPanel
 var _active_slot := 0
 var _sequence := 0
-var _time := 0.0
 var _latest_pose: Dictionary = {}
+var _collision_reported := false
+var _spectator_yaw := -PI / 2.0
+var _spectator_pitch := 0.35
+var _spectator_distance := 8.0
 
 
 func _ready() -> void:
 	_build_world()
 	_build_drone()
-	_build_spinning_body()
+	_build_target()
 	_build_cameras()
+	_collision_socket.connect_to_host("127.0.0.1", COLLISION_PORT)
+	_control_socket.connect_to_host("127.0.0.1", CONTROL_PORT)
 	var bind_error := _pose_socket.bind(POSE_PORT, "127.0.0.1")
 	if bind_error != OK:
 		push_error("Cannot listen for PyBullet poses on UDP %d: %s" % [POSE_PORT, bind_error])
@@ -37,17 +56,34 @@ func _ready() -> void:
 		print("FPV shared memory ready: ", SHM_PATH)
 
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	_receive_latest_pose()
-	_time += delta
-	# PyBullet is authoritative. Keep the demo motion only when no sender is
-	# connected, so the Godot project can still be previewed by itself.
-	if _latest_pose.is_empty():
-		_drone.position = Vector3(sin(_time * 0.35) * 2.5, 2.7 + sin(_time) * 0.25, 4.0 - _time * 0.45)
-		_drone.rotation = Vector3(sin(_time * 0.7) * 0.08, sin(_time * 0.25) * 0.12, sin(_time * 0.9) * 0.1)
-	_fpv_camera.global_transform = _drone.global_transform * Transform3D(Basis.IDENTITY, Vector3(0.0, 0.05, -0.35))
-	if _drone.position.z < -18.0:
-		_time = 0.0
+	var camera_transform := _drone.global_transform * FPV_MOUNT
+	_fpv_camera.global_transform = camera_transform
+	_update_spectator_camera()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_RIGHT:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if event.pressed else Input.MOUSE_MODE_VISIBLE
+		elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_spectator_distance = maxf(2.0, _spectator_distance - 2.0)
+		elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_spectator_distance = minf(100.0, _spectator_distance + 2.0)
+	elif event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		_spectator_yaw -= event.relative.x * SPECTATOR_TURN_SPEED
+		_spectator_pitch = clampf(_spectator_pitch - event.relative.y * SPECTATOR_TURN_SPEED, -1.4, 1.4)
+
+
+func _update_spectator_camera() -> void:
+	var direction := Vector3(
+		sin(_spectator_yaw) * cos(_spectator_pitch),
+		sin(_spectator_pitch),
+		cos(_spectator_yaw) * cos(_spectator_pitch),
+	)
+	_display_camera.global_position = _drone.global_position + direction * _spectator_distance
+	_display_camera.look_at(_drone.global_position)
 
 
 func _build_world() -> void:
@@ -65,36 +101,43 @@ func _build_world() -> void:
 	sun.light_energy = 1.5
 	add_child(sun)
 
-	_add_box(self, Vector3(0, -0.15, -8), Vector3(80, 0.3, 80), Color(0.34, 0.53, 0.29))
-	_add_box(self, Vector3(0, 0.02, -9), Vector3(3.2, 0.05, 42), Color(0.22, 0.24, 0.26))
-	for z in range(-28, 12, 5):
-		_add_box(self, Vector3(0, 0.06, z), Vector3(0.08, 0.01, 2.0), Color(0.95, 0.86, 0.46))
+	_add_box(self, Vector3(10, -0.15, 0), Vector3(80, 0.3, 80), Color(0.34, 0.53, 0.29))
+	_add_box(self, Vector3(10, 0.02, 0), Vector3(80, 0.05, 3.2), Color(0.22, 0.24, 0.26))
+	for x in range(-25, 50, 5):
+		_add_box(self, Vector3(x, 0.06, 0), Vector3(2.0, 0.01, 0.08), Color(0.95, 0.86, 0.46))
 	for i in range(9):
-		var z := 7.0 - float(i) * 5.0
+		var x := -20.0 + float(i) * 8.0
 		var height := 1.2 + float(i % 3) * 0.55
-		_add_box(self, Vector3(-6, height * 0.5, z), Vector3(2.1, height, 2.1), Color(0.74, 0.36, 0.21))
-		_add_box(self, Vector3(6, height * 0.5, z - 2), Vector3(2.1, height, 2.1), Color(0.72, 0.64, 0.42))
+		_add_obstacle(self, Vector3(x, height * 0.5, -6), Vector3(2.1, height, 2.1), Color(0.16, 0.38, 0.72))
+		_add_obstacle(self, Vector3(x - 2, height * 0.5, 6), Vector3(2.1, height, 2.1), Color(0.12, 0.28, 0.58))
 
 
 func _build_drone() -> void:
 	_drone = Node3D.new()
 	_drone.name = "Drone"
+	_drone.position = Vector3(-5.25, 0.05, 0.0)
 	add_child(_drone)
-	_add_box(_drone, Vector3.ZERO, Vector3(0.42, 0.16, 0.55), Color(0.08, 0.10, 0.13))
-	_add_box(_drone, Vector3.ZERO, Vector3(0.9, 0.07, 0.08), Color(0.13, 0.15, 0.18))
+	_add_box(_drone, Vector3.ZERO, Vector3(0.42, 0.16, 0.55), Color(0.82, 0.86, 0.9))
 	for x in [-0.42, 0.42]:
-		_add_box(_drone, Vector3(x, 0.02, 0), Vector3(0.22, 0.05, 0.22), Color(0.94, 0.40, 0.12))
+		for z in [-0.42, 0.42]:
+			_add_box(_drone, Vector3(x, 0.02, z), Vector3(0.22, 0.05, 0.22), Color(0.08, 0.35, 0.92))
+	_collision_sensor = Area3D.new()
+	var drone_shape := CollisionShape3D.new()
+	var drone_box := BoxShape3D.new()
+	drone_box.size = Vector3(0.9, 0.25, 0.9)
+	drone_shape.shape = drone_box
+	_collision_sensor.add_child(drone_shape)
+	_collision_sensor.body_entered.connect(_on_drone_body_entered)
+	_drone.add_child(_collision_sensor)
 
 
-func _build_spinning_body() -> void:
-	_spinning_body = Node3D.new()
-	_spinning_body.name = "PyBulletBody"
-	_spinning_body.position = Vector3(0, 1.8, -10)
-	add_child(_spinning_body)
-	_add_box(_spinning_body, Vector3.ZERO, Vector3(1.3, 0.6, 0.8), Color(0.92, 0.23, 0.16))
-	# The offset colored panels make attitude changes obvious in the FPV image.
-	_add_box(_spinning_body, Vector3(0, 0.31, 0), Vector3(1.1, 0.03, 0.5), Color(0.1, 0.75, 0.98))
-	_add_box(_spinning_body, Vector3(0.25, 0, 0.41), Vector3(0.3, 0.4, 0.03), Color(0.96, 0.9, 0.2))
+func _build_target() -> void:
+	_target = Node3D.new()
+	_target.name = "PyBulletTarget"
+	_target.position = Vector3(24.75, 1.0, 0.0)
+	add_child(_target)
+	_add_box(_target, Vector3.ZERO, Vector3(2, 2, 2), Color(0.9, 0.05, 0.05))
+	_add_collision_body(_target, Vector3.ZERO, Vector3(2, 2, 2), "target")
 
 
 func _receive_latest_pose() -> void:
@@ -105,8 +148,12 @@ func _receive_latest_pose() -> void:
 		if not value is Dictionary:
 			continue
 		_latest_pose = value
+		if value.get("reset", false):
+			_collision_reported = false
 		_apply_pose(value.get("drone"), _drone)
-		_apply_pose(value.get("target"), _spinning_body)
+		_apply_pose(value.get("target"), _target)
+		_update_target_distance(value.get("target_control"))
+		_update_fpv_overlay(value.get("overlay", {}))
 
 
 func _apply_pose(raw_pose: Variant, node: Node3D) -> void:
@@ -128,12 +175,10 @@ func _apply_pose(raw_pose: Variant, node: Node3D) -> void:
 
 
 func _build_cameras() -> void:
-	var overview := Camera3D.new()
-	overview.name = "OverviewCamera"
-	add_child(overview)
-	overview.position = Vector3(12, 10, 16)
-	overview.look_at(Vector3(0, 0, -9))
-	overview.current = true
+	_display_camera = Camera3D.new()
+	_display_camera.name = "DroneCamera"
+	add_child(_display_camera)
+	_display_camera.current = true
 
 	_fpv_viewport = SubViewport.new()
 	_fpv_viewport.name = "FPVViewport"
@@ -153,6 +198,16 @@ func _build_cameras() -> void:
 
 	var overlay := CanvasLayer.new()
 	add_child(overlay)
+	var preview_frame := Panel.new()
+	preview_frame.name = "FPVPreviewFrame"
+	preview_frame.position = Vector2(6, 6)
+	preview_frame.size = Vector2(488, 278)
+	var preview_style := StyleBoxFlat.new()
+	preview_style.bg_color = Color(0, 0, 0, 0)
+	preview_style.border_color = Color(0.08, 0.55, 0.95)
+	preview_style.set_border_width_all(2)
+	preview_frame.add_theme_stylebox_override("panel", preview_style)
+	overlay.add_child(preview_frame)
 	var preview := TextureRect.new()
 	preview.name = "FPVPreview"
 	preview.position = Vector2(10, 10)
@@ -160,6 +215,179 @@ func _build_cameras() -> void:
 	preview.texture = _fpv_viewport.get_texture()
 	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	overlay.add_child(preview)
+	_bbox_panel = Panel.new()
+	_bbox_panel.name = "RedTargetBoundingBox"
+	_bbox_panel.visible = false
+	var bbox_style := StyleBoxFlat.new()
+	bbox_style.bg_color = Color(0, 0, 0, 0)
+	bbox_style.border_color = Color(1.0, 0.82, 0.0, 0.95)
+	bbox_style.set_border_width_all(2)
+	_bbox_panel.add_theme_stylebox_override("panel", bbox_style)
+	overlay.add_child(_bbox_panel)
+
+	_telemetry_label = Label.new()
+	_telemetry_label.name = "FPVTelemetry"
+	_telemetry_label.position = Vector2(18, 18)
+	_telemetry_label.add_theme_font_size_override("font_size", 14)
+	_telemetry_label.add_theme_color_override("font_color", Color.WHITE)
+	_telemetry_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_telemetry_label.add_theme_constant_override("outline_size", 4)
+	overlay.add_child(_telemetry_label)
+
+	_rtf_label = Label.new()
+	_rtf_label.name = "RealTimeFactor"
+	_rtf_label.text = "RTF: --"
+	_rtf_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_rtf_label.offset_left = -132
+	_rtf_label.offset_top = -66
+	_rtf_label.offset_right = -16
+	_rtf_label.offset_bottom = -14
+	_rtf_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_rtf_label.add_theme_font_size_override("font_size", 18)
+	_rtf_label.add_theme_color_override("font_color", Color.WHITE)
+	_rtf_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_rtf_label.add_theme_constant_override("outline_size", 4)
+	overlay.add_child(_rtf_label)
+
+	var axes := Label.new()
+	axes.name = "WorldAxes"
+	axes.text = "Y ↑\nZ ⊙   X →"
+	axes.add_theme_font_size_override("font_size", 20)
+	axes.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	axes.offset_left = -130
+	axes.offset_top = 16
+	axes.offset_right = -16
+	axes.offset_bottom = 80
+	overlay.add_child(axes)
+
+	var controls := HBoxContainer.new()
+	controls.name = "SimulationControls"
+	controls.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	controls.offset_left = 16
+	controls.offset_top = -62
+	controls.offset_right = 136
+	controls.offset_bottom = -14
+	overlay.add_child(controls)
+	_add_control_button(controls, "▶", "Start simulation", "start")
+	_add_control_button(controls, "↻", "Reset simulation", "reset")
+	_add_control_button(controls, "■", "Stop and save unsuccessful attempt", "stop")
+
+	_reset_popup = PopupPanel.new()
+	_reset_popup.name = "ResetTargetPopup"
+	var reset_contents := VBoxContainer.new()
+	reset_contents.custom_minimum_size = Vector2(220, 110)
+	reset_contents.add_theme_constant_override("separation", 8)
+	_reset_popup.add_child(reset_contents)
+	var reset_label := Label.new()
+	reset_label.text = "Reset target distance"
+	reset_contents.add_child(reset_label)
+	_target_distance = OptionButton.new()
+	_target_distance.name = "TargetDistance"
+	_target_distance.tooltip_text = "Target distance applied on reset"
+	_target_distance.custom_minimum_size = Vector2(200, 34)
+	for distance in TARGET_DISTANCE_PRESETS_M:
+		_target_distance.add_item("Box: %d m" % distance, distance)
+	reset_contents.add_child(_target_distance)
+	var confirm := Button.new()
+	confirm.text = "Reset"
+	confirm.pressed.connect(_confirm_reset_pressed)
+	reset_contents.add_child(confirm)
+	overlay.add_child(_reset_popup)
+
+
+func _add_control_button(parent: Control, icon: String, tooltip: String, action: String) -> void:
+	var button := Button.new()
+	button.text = icon
+	button.tooltip_text = tooltip
+	button.custom_minimum_size = Vector2(52, 44)
+	button.add_theme_font_size_override("font_size", 22)
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(0.05, 0.08, 0.12, 0.9)
+	normal.border_color = Color(0.28, 0.42, 0.58, 0.95)
+	normal.set_border_width_all(1)
+	normal.set_corner_radius_all(4)
+	button.add_theme_stylebox_override("normal", normal)
+	var hover := normal.duplicate()
+	hover.bg_color = Color(0.08, 0.28, 0.45, 0.95)
+	button.add_theme_stylebox_override("hover", hover)
+	if action == "start":
+		button.pressed.connect(_on_start_pressed)
+	elif action == "reset":
+		button.pressed.connect(_on_reset_pressed)
+	else:
+		button.pressed.connect(_on_stop_pressed)
+	parent.add_child(button)
+
+
+func _on_start_pressed() -> void:
+	_target_distance.disabled = true
+	_send_control("start")
+
+
+func _on_reset_pressed() -> void:
+	_target_distance.disabled = false
+	_reset_popup.popup_centered()
+
+
+func _confirm_reset_pressed() -> void:
+	_reset_popup.hide()
+	_send_control("reset")
+
+
+func _on_stop_pressed() -> void:
+	_reset_popup.hide()
+	_send_control("stop")
+
+
+func _send_control(action: String) -> void:
+	var distance := _target_distance.get_selected_id() if _target_distance != null else 30
+	_control_socket.put_packet(JSON.stringify({"event": "simulation_control", "action": action, "target_distance_m": distance}).to_utf8_buffer())
+
+
+func _update_target_distance(raw_control: Variant) -> void:
+	if not raw_control is Dictionary or _target_distance == null:
+		return
+	var distance := int(round(float(raw_control.get("distance_m", 30))))
+	for index in range(_target_distance.item_count):
+		if _target_distance.get_item_id(index) == distance:
+			_target_distance.select(index)
+			return
+
+
+func _update_fpv_overlay(raw_overlay: Variant) -> void:
+	if not raw_overlay is Dictionary:
+		return
+	var overlay: Dictionary = raw_overlay
+	var bbox: Variant = overlay.get("bbox")
+	if bbox is Array and bbox.size() == 4:
+		_bbox_panel.visible = true
+		_bbox_panel.position = Vector2(10 + float(bbox[0]) * 0.75, 10 + float(bbox[1]) * 0.75)
+		_bbox_panel.size = Vector2(float(bbox[2]) * 0.75, float(bbox[3]) * 0.75)
+	else:
+		_bbox_panel.visible = false
+	_rtf_label.text = "RTF: %sx\nRUN: %s s" % [_format_rtf(overlay), _format_overlay_value(overlay.get("running_time_s"))]
+	_telemetry_label.text = "phase: %s\npitch: %s deg   thrust: %s N\nscale: %s px   growth: %s px/s\nTTC: %s s\nvx command: %s m/s   vz command: %s m/s" % [
+			str(overlay.get("phase", "takeoff")),
+			_format_overlay_value(overlay.get("pitch_deg")),
+			_format_overlay_value(overlay.get("thrust_n")),
+			_format_overlay_value(overlay.get("bbox_scale_px")),
+			_format_overlay_value(overlay.get("bbox_growth_px_s")),
+			_format_overlay_value(overlay.get("ttc_s")),
+			_format_overlay_value(overlay.get("command_vx_mps")),
+			_format_overlay_value(overlay.get("command_vz_mps")),
+		]
+
+
+func _format_overlay_value(value: Variant) -> String:
+	if value == null:
+		return "--"
+	return "%.1f" % float(value)
+
+
+func _format_rtf(raw_overlay: Variant) -> String:
+	if not raw_overlay is Dictionary or raw_overlay.get("rtf") == null:
+		return "--"
+	return "%.2f" % float(raw_overlay.get("rtf"))
 
 
 func _add_box(parent: Node, pos: Vector3, size: Vector3, color: Color) -> void:
@@ -172,6 +400,31 @@ func _add_box(parent: Node, pos: Vector3, size: Vector3, color: Color) -> void:
 	instance.mesh = mesh
 	instance.position = pos
 	parent.add_child(instance)
+
+
+func _add_obstacle(parent: Node, pos: Vector3, size: Vector3, color: Color) -> void:
+	_add_box(parent, pos, size, color)
+	_add_collision_body(parent, pos, size, "obstacle")
+
+
+func _add_collision_body(parent: Node, pos: Vector3, size: Vector3, kind: String) -> void:
+	var body := StaticBody3D.new()
+	body.set_meta("collision_kind", kind)
+	body.position = pos
+	var collision_shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = size
+	collision_shape.shape = box
+	body.add_child(collision_shape)
+	parent.add_child(body)
+
+
+func _on_drone_body_entered(body: Node3D) -> void:
+	if _collision_reported:
+		return
+	var kind: Variant = body.get_meta("collision_kind", "obstacle")
+	_collision_socket.put_packet(JSON.stringify({"event": "collision", "kind": kind}).to_utf8_buffer())
+	_collision_reported = true
 
 
 func _open_shared_memory() -> void:

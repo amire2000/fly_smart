@@ -97,9 +97,12 @@ def load_yaml_config(path: Path) -> StrikeConfig:
     takeoff = _mapping(runtime_data.get("takeoff"), "runtime.takeoff")
     limits = _mapping(runtime_data.get("flight_limits"), "runtime.flight_limits")
     ttc = _mapping(runtime_data.get("ttc"), "runtime.ttc")
-    sensors = _mapping(runtime_data.get("sensors"), "runtime.sensors")
-    barometer = _mapping(sensors.get("barometer"), "runtime.sensors.barometer")
-    imu = _mapping(sensors.get("imu"), "runtime.sensors.imu")
+    legacy_sensors = _mapping(runtime_data.get("sensors"), "runtime.sensors")
+    if legacy_sensors:
+        raise ValueError("runtime.sensors is no longer supported; move it to simulation.sensors")
+    sensors = _mapping(simulation_data.get("sensors"), "simulation.sensors")
+    barometer = _mapping(sensors.get("barometer"), "simulation.sensors.barometer")
+    imu = _mapping(sensors.get("imu"), "simulation.sensors.imu")
     estimator = _mapping(runtime_data.get("vertical_estimator"), "runtime.vertical_estimator")
     pid = _mapping(runtime_data.get("pid"), "runtime.pid")
     vertical = _mapping(runtime_data.get("vertical_control"), "runtime.vertical_control")
@@ -179,36 +182,46 @@ def load_yaml_config(path: Path) -> StrikeConfig:
         runtime = replace(runtime, ttc_beta=_unit_interval(ttc["beta"], "runtime.ttc.beta"))
     if "ttc_unavailable_descent_velocity_mps" in ttc:
         runtime = replace(runtime, ttc_unavailable_descent_velocity_mps=_non_negative(ttc["ttc_unavailable_descent_velocity_mps"], "runtime.ttc.ttc_unavailable_descent_velocity_mps"))
+    if "ttc_unavailable_descent_slope_m_per_m" in ttc:
+        runtime = replace(runtime, ttc_unavailable_descent_slope_m_per_m=_non_negative(ttc["ttc_unavailable_descent_slope_m_per_m"], "runtime.ttc.ttc_unavailable_descent_slope_m_per_m"))
     if "ttc_unavailable_pitch_boost_deg" in ttc:
         runtime = replace(runtime, ttc_unavailable_pitch_boost_deg=_non_negative(ttc["ttc_unavailable_pitch_boost_deg"], "runtime.ttc.ttc_unavailable_pitch_boost_deg"))
-    runtime = _merge(runtime, {name: value for name, value in ttc.items() if name not in {"alpha", "beta", "ttc_unavailable_descent_velocity_mps", "ttc_unavailable_pitch_boost_deg"}}, ("min_ttc_s", "commit_box_height_fraction", "min_growth_px_per_s"), "runtime.ttc")
+    if "ttc_activation_s" in ttc:
+        runtime = replace(runtime, ttc_activation_s=_non_negative(ttc["ttc_activation_s"], "runtime.ttc.ttc_activation_s"))
+    if "camera_dy_gain_mps_per_deg" in ttc:
+        runtime = replace(runtime, camera_dy_gain_mps_per_deg=_non_negative(ttc["camera_dy_gain_mps_per_deg"], "runtime.ttc.camera_dy_gain_mps_per_deg"))
+    if "camera_dy_deadband_deg" in ttc:
+        runtime = replace(runtime, camera_dy_deadband_deg=_non_negative(ttc["camera_dy_deadband_deg"], "runtime.ttc.camera_dy_deadband_deg"))
+    if "camera_dy_max_correction_mps" in ttc:
+        runtime = replace(runtime, camera_dy_max_correction_mps=_non_negative(ttc["camera_dy_max_correction_mps"], "runtime.ttc.camera_dy_max_correction_mps"))
+    runtime = _merge(runtime, {name: value for name, value in ttc.items() if name not in {"alpha", "beta", "ttc_unavailable_descent_velocity_mps", "ttc_unavailable_descent_slope_m_per_m", "ttc_unavailable_pitch_boost_deg", "ttc_activation_s", "camera_dy_gain_mps_per_deg", "camera_dy_deadband_deg", "camera_dy_max_correction_mps"}}, ("min_ttc_s", "commit_box_height_fraction", "min_growth_px_per_s"), "runtime.ttc")
     if "sample_hz" in barometer:
-        runtime = replace(runtime, barometer_sample_hz=_positive(barometer["sample_hz"], "runtime.sensors.barometer.sample_hz"))
+        simulation = replace(simulation, barometer_sample_hz=_positive(barometer["sample_hz"], "simulation.sensors.barometer.sample_hz"))
     if "altitude_noise_sigma_m" in barometer:
-        runtime = replace(runtime, barometer_noise_sigma_m=_non_negative(barometer["altitude_noise_sigma_m"], "runtime.sensors.barometer.altitude_noise_sigma_m"))
+        simulation = replace(simulation, barometer_noise_sigma_m=_non_negative(barometer["altitude_noise_sigma_m"], "simulation.sensors.barometer.altitude_noise_sigma_m"))
     if "altitude_bias_m" in barometer:
-        runtime = replace(runtime, barometer_bias_m=_finite(barometer["altitude_bias_m"], "runtime.sensors.barometer.altitude_bias_m"))
+        simulation = replace(simulation, barometer_bias_m=_finite(barometer["altitude_bias_m"], "simulation.sensors.barometer.altitude_bias_m"))
     if "drift_sigma_m_per_sqrt_s" in barometer:
-        runtime = replace(runtime, barometer_drift_sigma_m_per_sqrt_s=_non_negative(barometer["drift_sigma_m_per_sqrt_s"], "runtime.sensors.barometer.drift_sigma_m_per_sqrt_s"))
+        simulation = replace(simulation, barometer_drift_sigma_m_per_sqrt_s=_non_negative(barometer["drift_sigma_m_per_sqrt_s"], "simulation.sensors.barometer.drift_sigma_m_per_sqrt_s"))
     if "altitude_old_weight" in barometer:
-        runtime = replace(runtime, barometer_altitude_old_weight=_unit_interval(barometer["altitude_old_weight"], "runtime.sensors.barometer.altitude_old_weight"))
+        simulation = replace(simulation, barometer_altitude_old_weight=_unit_interval(barometer["altitude_old_weight"], "simulation.sensors.barometer.altitude_old_weight"))
     if "velocity_old_weight" in barometer:
-        runtime = replace(runtime, barometer_velocity_old_weight=_unit_interval(barometer["velocity_old_weight"], "runtime.sensors.barometer.velocity_old_weight"))
+        simulation = replace(simulation, barometer_velocity_old_weight=_unit_interval(barometer["velocity_old_weight"], "simulation.sensors.barometer.velocity_old_weight"))
     unknown = set(barometer) - {"sample_hz", "altitude_noise_sigma_m", "altitude_bias_m", "drift_sigma_m_per_sqrt_s", "altitude_old_weight", "velocity_old_weight"}
     if unknown:
-        raise ValueError(f"unknown runtime.sensors.barometer setting(s): {', '.join(sorted(unknown))}")
+        raise ValueError(f"unknown simulation.sensors.barometer setting(s): {', '.join(sorted(unknown))}")
     if "sample_hz" in imu:
-        runtime = replace(runtime, imu_sample_hz=_positive(imu["sample_hz"], "runtime.sensors.imu.sample_hz"))
+        simulation = replace(simulation, imu_sample_hz=_positive(imu["sample_hz"], "simulation.sensors.imu.sample_hz"))
     for yaml_name, field_name in (
         ("accelerometer_noise_sigma_mps2", "accelerometer_noise_sigma_mps2"),
         ("accelerometer_initial_bias_sigma_mps2", "accelerometer_initial_bias_sigma_mps2"),
         ("accelerometer_bias_random_walk_mps2_per_sqrt_s", "accelerometer_bias_random_walk_mps2_per_sqrt_s"),
     ):
         if yaml_name in imu:
-            runtime = replace(runtime, **{field_name: _non_negative(imu[yaml_name], f"runtime.sensors.imu.{yaml_name}")})
+            simulation = replace(simulation, **{field_name: _non_negative(imu[yaml_name], f"simulation.sensors.imu.{yaml_name}")})
     unknown = set(imu) - {"sample_hz", "accelerometer_noise_sigma_mps2", "accelerometer_initial_bias_sigma_mps2", "accelerometer_bias_random_walk_mps2_per_sqrt_s"}
     if unknown:
-        raise ValueError(f"unknown runtime.sensors.imu setting(s): {', '.join(sorted(unknown))}")
+        raise ValueError(f"unknown simulation.sensors.imu setting(s): {', '.join(sorted(unknown))}")
     if "alpha" in estimator:
         runtime = replace(runtime, vertical_estimator_alpha=_unit_interval(estimator["alpha"], "runtime.vertical_estimator.alpha"))
     if "beta" in estimator:
@@ -216,7 +229,9 @@ def load_yaml_config(path: Path) -> StrikeConfig:
     unknown = set(estimator) - {"alpha", "beta"}
     if unknown:
         raise ValueError(f"unknown runtime.vertical_estimator setting(s): {', '.join(sorted(unknown))}")
-    runtime = _merge(runtime, vertical, ("vertical_position_correction",), "runtime.vertical_control")
+    if "max_vertical_position_correction_mps" in vertical:
+        runtime = replace(runtime, max_vertical_position_correction_mps=_non_negative(vertical["max_vertical_position_correction_mps"], "runtime.vertical_control.max_vertical_position_correction_mps"))
+    runtime = _merge(runtime, {name: value for name, value in vertical.items() if name != "max_vertical_position_correction_mps"}, ("vertical_position_correction",), "runtime.vertical_control")
 
     for name, field_name in (("altitude", "altitude_pid_gains"), ("forward_speed", "forward_speed_pid_gains"), ("pitch_attitude", "pitch_attitude_pid_gains"), ("vertical_velocity", "vertical_velocity_pid_gains")):
         values = _mapping(pid.get(name), f"runtime.pid.{name}")

@@ -11,7 +11,7 @@ class SimulationConfig:
     """Simulator scene, vehicle model, synthetic sensors, and display defaults."""
 
     launch_position: tuple[float, float, float] = (-5.25, 0.0, 0.05)
-    target_center: tuple[float, float, float] = (30.0, 0.0, 1.0)
+    target_center: tuple[float, float, float] = (24.75, 0.0, 1.0)
     target_size_m: float = 2.0
     drone_profile: str = "default"
     gravity_mps2: float = 9.81
@@ -37,6 +37,16 @@ class SimulationConfig:
     ground_effect_max_multiplier: float = 1.25
     gyroscopic_torque_enabled: bool = False
     rotor_inertia_kg_m2: float | None = None
+    barometer_sample_hz: float = 40.0
+    barometer_noise_sigma_m: float = 0.10
+    barometer_bias_m: float = 0.0
+    barometer_drift_sigma_m_per_sqrt_s: float = 0.0
+    barometer_altitude_old_weight: float = 0.80
+    barometer_velocity_old_weight: float = 0.95
+    imu_sample_hz: float = 240.0
+    accelerometer_noise_sigma_mps2: float = 0.0075
+    accelerometer_initial_bias_sigma_mps2: float = 0.0981
+    accelerometer_bias_random_walk_mps2_per_sqrt_s: float = 0.0049
 
     @property
     def drone_model(self) -> DroneModel:
@@ -86,25 +96,20 @@ class RuntimeConfig:
     impact_altitude_m: float = 1.0
     forward_speed_mps: float = 13.0
     nominal_pitch_deg: float = 20.0
-    max_descent_velocity_mps: float = 4.5
+    max_descent_velocity_mps: float = 5.5
     max_climb_velocity_mps: float = 3.0
     min_ttc_s: float = 0.2
+    ttc_activation_s: float = 8.0
     commit_box_height_fraction: float = 0.1
     ttc_alpha: float = 0.85
     ttc_beta: float = 0.05
     min_growth_px_per_s: float = 0.01
     ttc_unavailable_descent_velocity_mps: float = 1.5
+    ttc_unavailable_descent_slope_m_per_m: float = 0.50
     ttc_unavailable_pitch_boost_deg: float = 0.0
-    barometer_sample_hz: float = 40.0
-    barometer_noise_sigma_m: float = 0.10
-    barometer_bias_m: float = 0.0
-    barometer_drift_sigma_m_per_sqrt_s: float = 0.0
-    barometer_altitude_old_weight: float = 0.80
-    barometer_velocity_old_weight: float = 0.95
-    imu_sample_hz: float = 240.0
-    accelerometer_noise_sigma_mps2: float = 0.0075
-    accelerometer_initial_bias_sigma_mps2: float = 0.0981
-    accelerometer_bias_random_walk_mps2_per_sqrt_s: float = 0.0049
+    camera_dy_gain_mps_per_deg: float = 0.20
+    camera_dy_deadband_deg: float = 1.0
+    camera_dy_max_correction_mps: float = 2.0
     vertical_estimator_alpha: float = 0.08
     vertical_estimator_beta: float = 0.005
     altitude_pid_gains: tuple[float, float, float] = (1.8, 0.05, 2.2)
@@ -115,6 +120,7 @@ class RuntimeConfig:
     max_pitch_deg: float = 20.0
     vertical_velocity_pid_gains: tuple[float, float, float] = (1.0, 0.0, 0.0)
     vertical_position_correction: float = 0.8
+    max_vertical_position_correction_mps: float = 2.0
     takeoff_altitude_tolerance_m: float = 0.2
     takeoff_velocity_tolerance_mps: float = 0.5
     commit_timeout_margin_s: float = 5.0
@@ -157,7 +163,14 @@ class StrikeConfig:
 
     def __getattr__(self, name: str):
         """Keep the old flat access API while callers migrate to grouped config."""
-        for group in (self.simulation, self.runtime):
+        # Pickle creates the instance before restoring dataclass fields. Use
+        # object-level lookup so a missing field does not recurse through this
+        # compatibility hook while multiprocessing reconstructs the config.
+        try:
+            groups = (object.__getattribute__(self, "simulation"), object.__getattribute__(self, "runtime"))
+        except AttributeError:
+            raise AttributeError(name) from None
+        for group in groups:
             if hasattr(group, name):
                 return getattr(group, name)
         raise AttributeError(name)
