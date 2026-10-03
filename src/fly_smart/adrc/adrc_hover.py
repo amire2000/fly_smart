@@ -70,7 +70,7 @@ class HoverAdrcController:
         hover_altitude_m: float = 3.0,
         model: DroneModel = DEFAULT_DRONE_MODEL,
         settings: PhysicsSettings = DEFAULT_PHYSICS_SETTINGS,
-        bandwidth: float = 6.0,
+        bandwidth: float = 3.0,
     ) -> None:
         if hover_altitude_m <= 0.0 or bandwidth <= 0.0:
             raise ValueError("hover_altitude_m and bandwidth must be positive")

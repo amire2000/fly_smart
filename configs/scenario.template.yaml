@@ -108,3 +108,10 @@ runtime:
   vertical_control:
     vertical_position_correction: 0.8     # Position error to vertical-velocity correction.
     max_vertical_position_correction_mps: 2.0  # Bound position-error contribution [m/s].
+  adrc:
+    pitch_bandwidth: 1.5
+    pitch_b0: 8.0
+    pitch_output_limit_rad: 0.35
+    thrust_bandwidth: 1.5
+    thrust_b0: 1.5
+    thrust_output_limit_n: 4.0

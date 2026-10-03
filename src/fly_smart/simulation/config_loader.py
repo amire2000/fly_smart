@@ -105,6 +105,7 @@ def load_yaml_config(path: Path) -> StrikeConfig:
     imu = _mapping(sensors.get("imu"), "simulation.sensors.imu")
     estimator = _mapping(runtime_data.get("vertical_estimator"), "runtime.vertical_estimator")
     pid = _mapping(runtime_data.get("pid"), "runtime.pid")
+    adrc = _mapping(runtime_data.get("adrc"), "runtime.adrc")
     vertical = _mapping(runtime_data.get("vertical_control"), "runtime.vertical_control")
     forces = _mapping(simulation_data.get("physical_forces"), "simulation.physical_forces")
     body_drag = _mapping(forces.get("body_drag"), "simulation.physical_forces.body_drag")
@@ -244,4 +245,17 @@ def load_yaml_config(path: Path) -> StrikeConfig:
         unknown = set(values) - {"gains", "integral_limit"}
         if unknown:
             raise ValueError(f"unknown runtime.pid.{name} setting(s): {', '.join(sorted(unknown))}")
+    for name, field_name in (
+        ("pitch_bandwidth", "pitch_adrc_bandwidth"),
+        ("pitch_b0", "pitch_adrc_b0"),
+        ("pitch_output_limit_rad", "pitch_adrc_output_limit_rad"),
+        ("thrust_bandwidth", "thrust_adrc_bandwidth"),
+        ("thrust_b0", "thrust_adrc_b0"),
+        ("thrust_output_limit_n", "thrust_adrc_output_limit_n"),
+    ):
+        if name in adrc:
+            runtime = replace(runtime, **{field_name: _positive(adrc[name], f"runtime.adrc.{name}")})
+    unknown = set(adrc) - {"pitch_bandwidth", "pitch_b0", "pitch_output_limit_rad", "thrust_bandwidth", "thrust_b0", "thrust_output_limit_n"}
+    if unknown:
+        raise ValueError(f"unknown runtime.adrc setting(s): {', '.join(sorted(unknown))}")
     return StrikeConfig(simulation=simulation, runtime=runtime)

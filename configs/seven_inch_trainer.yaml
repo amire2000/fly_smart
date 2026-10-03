@@ -75,3 +75,10 @@ runtime:
   vertical_control:
     vertical_position_correction: 2.0    # Hold descent demand when TTC grows near the target.
     max_vertical_position_correction_mps: 2.0  # Bound the correction contribution.
+  adrc:
+    pitch_bandwidth: 1.5
+    pitch_b0: 8.0
+    pitch_output_limit_rad: 0.35
+    thrust_bandwidth: 1.5
+    thrust_b0: 1.5
+    thrust_output_limit_n: 4.0

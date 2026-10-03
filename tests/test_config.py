@@ -32,6 +32,18 @@ def test_default_scenario_enables_pitch_boost_for_invalid_ttc():
     assert config.max_vertical_position_correction_mps == 2.0
 
 
+def test_adrc_settings_are_loaded_and_positive(tmp_path: Path):
+    config_path = tmp_path / "scenario.yaml"
+    config_path.write_text("runtime:\n  adrc:\n    pitch_bandwidth: 2.5\n    thrust_output_limit_n: 3\n")
+    config = load_yaml_config(config_path)
+    assert config.pitch_adrc_bandwidth == 2.5
+    assert config.thrust_adrc_output_limit_n == 3.0
+
+    config_path.write_text("runtime:\n  adrc:\n    thrust_b0: 0\n")
+    with pytest.raises(ValueError, match="positive"):
+        load_yaml_config(config_path)
+
+
 def test_sensor_settings_belong_to_simulation_and_keep_flat_access():
     config = load_yaml_config(Path("configs/scenario.yaml"))
     assert config.simulation.barometer_sample_hz == 40.0

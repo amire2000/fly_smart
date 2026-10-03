@@ -63,3 +63,10 @@ runtime:
     beta: 0.005
   vertical_control:
     max_vertical_position_correction_mps: 2.0
+  adrc:
+    pitch_bandwidth: 1.5
+    pitch_b0: 8.0
+    pitch_output_limit_rad: 0.35
+    thrust_bandwidth: 1.5
+    thrust_b0: 1.5
+    thrust_output_limit_n: 4.0

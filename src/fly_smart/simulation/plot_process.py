@@ -15,6 +15,7 @@ from .telemetry import FlightLog, append_telemetry_sample, make_plot, move_plot_
 PLOT_PORT = 9103
 PLOT_HZ = 3.0
 PLOT_MAX_POINTS = 1500
+PLOT_IDLE_INTERVAL_S = 0.10
 
 
 def start_plot_process(config: StrikeConfig, scene: SceneConfig, scenario_name: str, output: Path | None) -> tuple[mp.Process, socket.socket] | None:
@@ -99,9 +100,9 @@ def run_plot_process(config: StrikeConfig, scene: SceneConfig, scenario_name: st
                 if should_rescale:
                     next_rescale = now + 1.0
                 dirty = False
-            # Keep Matplotlib responsive without polling/redrawing at the
-            # telemetry rate while waiting for the next display refresh.
-            plt.pause(0.10)
+            # refresh_plot flushes GUI events at the 3 Hz redraw rate. TkAgg's
+            # plt.pause() busy-polls this large figure between redraws.
+            time.sleep(PLOT_IDLE_INTERVAL_S)
         plt.close(plot.figure)
     except OSError:
         return

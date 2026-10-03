@@ -9,7 +9,7 @@ from gymnasium.utils.env_checker import check_env
 from fly_smart.rl import PyBulletHoverEnv
 from fly_smart.rl.ppo_train import train_and_evaluate
 from fly_smart.rl.pid_hover import HoverPidController
-from fly_smart.rl.adrc_hover import AdrcAxis, AdrcSettings, HoverAdrcController
+from fly_smart.adrc.adrc_hover import AdrcAxis, AdrcSettings, HoverAdrcController
 
 
 def test_hover_environment_passes_gymnasium_checker():

@@ -35,3 +35,4 @@ for work that has not been committed yet.
 | [rl-ppo-training.md](rl-ppo-training.md) | PPO training, checkpoints, and deterministic hover evaluation. | `pending` |
 | [rl-pid-hover-baseline.md](rl-pid-hover-baseline.md) | Four-action PID baseline for a 3 m hover check. | `pending` |
 | [rl-adrc-hover-baseline.md](rl-adrc-hover-baseline.md) | Four-action ESO-based ADRC baseline for a 3 m hover check. | `pending` |
+| [adrc-guidance-switch.md](adrc-guidance-switch.md) | ADRC pitch/thrust control for TTC and bbox-DY tracking modes. | `pending` |

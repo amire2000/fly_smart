@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from math import copysign, cos, isfinite
 
+from .common.adrc import ADRC
 from .common.pid import PID
 
 from .mission import MissionConfig
@@ -61,21 +62,18 @@ class GuidanceCommand:
 class StrikeGuidance:
     """Translate sensor observations into pitch and collective-thrust commands.
 
-    The guidance layer owns three independent PID controllers:
+    The guidance layer owns one TAKEOFF PID and two TRACK/COMMIT ADRC loops:
 
     - ``altitude_pid`` runs during ``TAKEOFF``. It converts altitude error and
       measured vertical velocity into collective thrust; a separate speed
       guard caps thrust at hover above the configured climb limit.
-    - ``forward_pid`` runs during ``TRACK``. It converts forward-velocity
-      error into a positive pitch target, which tilts the rotor disk to build
-      forward speed.
-    - ``vertical_velocity_pid`` runs during ``TRACK``. It converts the planned
-      vertical-velocity error into collective thrust so the vehicle follows the
-      altitude trajectory while moving forward.
+    - pitch ADRC regulates forward velocity and outputs a bounded pitch target.
+    - thrust ADRC regulates the planned vertical velocity and outputs a
+      bounded collective-thrust correction around hover thrust.
 
     ``ABORT`` reuses ``altitude_pid`` with zero altitude error to damp vertical
     velocity. ``COMMIT`` freezes the last pitch and descent-rate target, then
-    continues the barometer-driven vertical PID without camera measurements.
+    continues the barometer-driven thrust ADRC without camera measurements.
     """
 
     def __init__(self, config: MissionConfig) -> None:
@@ -83,8 +81,10 @@ class StrikeGuidance:
         self.phase = FlightPhase.TAKEOFF
         self.trajectory = TtcDescentPlanner(config)
         self.altitude_pid = PID(*config.altitude_pid_gains, integral_limit=config.altitude_integral_limit)
-        self.forward_pid = PID(*config.forward_speed_pid_gains, integral_limit=config.forward_pitch_integral_limit)
-        self.vertical_velocity_pid = PID(*config.vertical_velocity_pid_gains)
+        self.pitch_adrc = ADRC(config.pitch_adrc_bandwidth, config.pitch_adrc_b0, config.pitch_adrc_output_limit_rad)
+        self.thrust_adrc = ADRC(config.thrust_adrc_bandwidth, config.thrust_adrc_b0, config.thrust_adrc_output_limit_n)
+        self._adrc_initialized = False
+        self._last_update_s = 0.0
         self.last_command = GuidanceCommand(self.phase, config.hover_thrust_n, 0.0, None)
         self.commit_deadline_s: float | None = None
         self.commit_descent_velocity_mps: float | None = None
@@ -124,7 +124,7 @@ class StrikeGuidance:
             stable = abs(data.barometer.vertical_velocity_mps) < self.config.takeoff_velocity_tolerance_mps
             if ready and stable and data.last_observation:
                 self.phase = FlightPhase.TRACK
-                self.forward_pid.reset()
+                self._reset_adrc(data)
                 self.last_tracking_descent_velocity_mps = None
                 # The camera estimate was accumulated during takeoff. Ignore
                 # it for this first track command and reset the tracker, so a
@@ -154,10 +154,13 @@ class StrikeGuidance:
             # closed-loop: constant thrust would eventually arrest descent or
             # cause a climb as the airframe attitude and velocity change.
             desired_vz = self.commit_descent_velocity_mps or 0.0
-            vertical_force = self.config.hover_thrust_n + self.vertical_velocity_pid.update(
-                desired_vz - data.barometer.vertical_velocity_mps,
-                0.0,
+            self._ensure_adrc(data)
+            thrust_correction, self.thrust_adrc = self.thrust_adrc.update(
+                desired_vz,
+                data.barometer.vertical_velocity_mps,
+                self._control_dt(data),
             )
+            vertical_force = self.config.hover_thrust_n + thrust_correction
             thrust = vertical_force / max(cos(data.measured_pitch_rad), 0.5)
             command = GuidanceCommand(
                 self.phase,
@@ -169,6 +172,7 @@ class StrikeGuidance:
                 vertical_control_mode=VerticalControlMode.COMMIT,
             )
             self.last_command = command
+            self._last_update_s = data.now_s
             return command
 
         if self.phase == FlightPhase.ABORT:
@@ -199,20 +203,17 @@ class StrikeGuidance:
         camera_correction = self._camera_dy_correction(data.vertical_alignment_error_deg) if mode == VerticalControlMode.DY and data.target_visible else 0.0
         if camera_correction:
             trajectory = replace(trajectory, vertical_velocity_mps=trajectory.vertical_velocity_mps + camera_correction)
-        pitch_correction = self.forward_pid.update(
-            trajectory.forward_velocity_mps - data.forward_velocity_mps,
-            0.0,
-        )
+        self._ensure_adrc(data)
+        dt = self._control_dt(data)
+        pitch_correction, self.pitch_adrc = self.pitch_adrc.update(trajectory.forward_velocity_mps, data.forward_velocity_mps, dt)
         pitch = max(0.0, min(self.config.max_pitch_rad, pitch_correction))
         if data.target_visible and data.observation is None:
             pitch = min(self.config.max_pitch_rad + self.config.ttc_unavailable_pitch_boost_rad, pitch + self.config.ttc_unavailable_pitch_boost_rad)
         corrected_vz = self._corrected_vertical_velocity(trajectory, data.barometer.altitude_m)
         if ttc_valid:
             self.last_tracking_descent_velocity_mps = corrected_vz
-        vertical_force = self.config.hover_thrust_n + self.vertical_velocity_pid.update(
-            corrected_vz - data.barometer.vertical_velocity_mps,
-            0.0,
-        )
+        thrust_correction, self.thrust_adrc = self.thrust_adrc.update(corrected_vz, data.barometer.vertical_velocity_mps, dt)
+        vertical_force = self.config.hover_thrust_n + thrust_correction
         # Keep world-vertical lift constant while the rotor disk tilts forward.
         # Compensate for the attitude the vehicle actually has, not only the
         # target attitude. This preserves vertical lift during pitch lag.
@@ -228,7 +229,24 @@ class StrikeGuidance:
             path_slope_target_m_per_m=path_slope_target,
         )
         self.last_command = command
+        self._last_update_s = data.now_s
         return command
+
+    def _reset_adrc(self, data: GuidanceInput) -> None:
+        """Initialize both observers from the first TRACK measurements."""
+        self.pitch_adrc = self.pitch_adrc.reset(data.forward_velocity_mps)
+        self.thrust_adrc = self.thrust_adrc.reset(data.barometer.vertical_velocity_mps)
+        self._adrc_initialized = True
+        self._last_update_s = data.now_s
+
+    def _ensure_adrc(self, data: GuidanceInput) -> None:
+        """Initialize observers for direct TRACK/COMMIT calls in tests/tools."""
+        if not self._adrc_initialized:
+            self._reset_adrc(data)
+
+    def _control_dt(self, data: GuidanceInput) -> float:
+        """Return a bounded control interval for observer integration."""
+        return max(data.now_s - self._last_update_s, 1.0 / 120.0)
 
     def _camera_dy_correction(self, error_deg: float | None) -> float:
         """Return the bounded descent correction for a compensated camera error."""

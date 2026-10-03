@@ -3,6 +3,7 @@ from dataclasses import replace
 from math import degrees
 
 from fly_smart.guidance import FlightPhase, GuidanceInput, StrikeGuidance, VerticalControlMode
+from fly_smart.common.adrc import ADRC
 from fly_smart.mission import MissionConfig
 from fly_smart.red_target_detector import detect_red_box as legacy_detect_red_box
 from fly_smart.trackers.red_target_detector import detect_red_box
@@ -10,6 +11,16 @@ from fly_smart.sensing import BarometerReading
 from fly_smart.ttc import BboxTtcTracker, TtcObservation
 from fly_smart.trajectory import TtcDescentPlanner
 from fly_smart.trajectory import TrajectoryCommand
+
+
+def test_adrc_is_bounded_and_tracks_a_step():
+    controller = ADRC(2.0, 1.0, 0.25).reset(0.0)
+    outputs = []
+    for _ in range(20):
+        output, controller = controller.update(1.0, 0.0, 0.02)
+        outputs.append(output)
+    assert all(abs(output) <= 0.25 for output in outputs)
+    assert outputs[0] > 0.0
 
 
 def test_core_guidance_and_vision_do_not_need_simulation():

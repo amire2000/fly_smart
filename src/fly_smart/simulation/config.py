@@ -119,6 +119,12 @@ class RuntimeConfig:
     pitch_attitude_pid_gains: tuple[float, float, float] = (0.008, 0.0, 0.006)
     max_pitch_deg: float = 20.0
     vertical_velocity_pid_gains: tuple[float, float, float] = (1.0, 0.0, 0.0)
+    pitch_adrc_bandwidth: float = 1.5
+    pitch_adrc_b0: float = 8.0
+    pitch_adrc_output_limit_rad: float = 0.35
+    thrust_adrc_bandwidth: float = 1.5
+    thrust_adrc_b0: float = 1.5
+    thrust_adrc_output_limit_n: float = 4.0
     vertical_position_correction: float = 0.8
     max_vertical_position_correction_mps: float = 2.0
     takeoff_altitude_tolerance_m: float = 0.2
