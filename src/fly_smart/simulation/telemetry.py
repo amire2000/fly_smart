@@ -191,6 +191,7 @@ class TelemetryPlot:
     ttc_gate_line: object
     growth_gate_line: object
     ttc_activation_s: float
+    control_switch_lines: tuple[object, ...]
     alignment_zero_px: object
     alignment_zero_angle: object
     lines: tuple[object, ...]
@@ -207,11 +208,13 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
 
     figure, (velocity_axis, path_axis, trajectory_axis, guidance_axis, growth_axis, ttc_axis, alignment_axis, barometer_axis) = plt.subplots(8, 1, figsize=(10, 20))
     figure.suptitle(f"TTC strike telemetry — {scene.drone_profile} / {scenario_name}")
+    control_switch_lines: list[object] = []
     vx_line, = velocity_axis.plot([], [], label="vx measured", color="#2563eb")
     velocity_command_line, = velocity_axis.plot([], [], "--", label="vx target", color="#2563eb")
     vz_line, = velocity_axis.plot([], [], label="vz vertical", color="#dc2626")
     velocity_axis.set(xlabel="time (s)", ylabel="velocity (m/s)", title="Measured world-frame velocity")
     velocity_axis.grid(alpha=0.25)
+    control_switch_lines.append(velocity_axis.axvline(float("nan"), color="#be123c", linestyle="--", linewidth=1.2, label="DY → TTC"))
     velocity_axis.legend()
 
     path_line, = path_axis.plot([], [], color="#16a34a", label="drone path")
@@ -234,6 +237,7 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
     trajectory_axis.set(xlabel="time (s)", ylabel="velocity command (m/s)", title="TrajectoryCommand")
     trajectory_altitude_axis.set_ylabel("altitude target (m)")
     trajectory_axis.grid(alpha=0.25)
+    control_switch_lines.append(trajectory_axis.axvline(float("nan"), color="#be123c", linestyle="--", linewidth=1.2, label="DY → TTC"))
     trajectory_axis.legend((command_vx_line, command_vz_line, pid_vz_target_line, camera_dy_correction_line, command_altitude_line), ("command vx", "TTC vz", "PID vz target", "camera dy correction (DY mode)", "altitude target"), loc="upper left")
 
     thrust_line, = guidance_axis.plot([], [], label="collective thrust", color="#7c3aed")
@@ -243,6 +247,7 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
     guidance_axis.set(xlabel="time (s)", ylabel="GuidanceCommand thrust (N)", title="GuidanceCommand")
     pitch_axis.set_ylabel("pitch target (deg)")
     guidance_axis.grid(alpha=0.25)
+    control_switch_lines.append(guidance_axis.axvline(float("nan"), color="#be123c", linestyle="--", linewidth=1.2, label="DY → TTC"))
     guidance_axis.legend((thrust_line, pitch_line, measured_pitch_line), ("collective thrust", "pitch target", "pitch measured"), loc="upper left")
 
     raw_growth_line, = growth_axis.plot([], [], "--", color="#f97316", alpha=0.8, label="raw bbox growth")
@@ -250,6 +255,7 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
     growth_gate_line = growth_axis.axvline(float("nan"), color="#b45309", linestyle=":", label="first valid growth")
     growth_axis.set(xlabel="time (s)", ylabel="growth (px/s)", title="Alpha-beta bbox growth filter")
     growth_axis.grid(alpha=0.25)
+    control_switch_lines.append(growth_axis.axvline(float("nan"), color="#be123c", linestyle="--", linewidth=1.2, label="DY → TTC"))
     growth_axis.legend()
 
     raw_ttc_line, = ttc_axis.plot([], [], "--", color="#f97316", alpha=0.8, label="raw TTC")
@@ -257,6 +263,7 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
     ttc_gate_line = ttc_axis.axvline(float("nan"), color="#b45309", linestyle=":", label=f"TTC activation ({config.ttc_activation_s:g} s)")
     ttc_axis.set(xlabel="time (s)", ylabel="TTC (s)", title="Time-to-contact estimate")
     ttc_axis.grid(alpha=0.25)
+    control_switch_lines.append(ttc_axis.axvline(float("nan"), color="#be123c", linestyle="--", linewidth=1.2, label="DY → TTC"))
     ttc_axis.legend()
 
     alignment_angle_axis = alignment_axis.twinx()
@@ -270,6 +277,7 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
     alignment_axis.set(xlabel="time (s)", ylabel="center error (px)", title="Target alignment")
     alignment_angle_axis.set_ylabel("center error (deg)")
     alignment_axis.grid(alpha=0.25)
+    control_switch_lines.append(alignment_axis.axvline(float("nan"), color="#be123c", linestyle="--", linewidth=1.2, label="DY → TTC"))
     alignment_axis.legend((dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line), ("dx pixel", "dy pixel", "dx angle", "dy angle", "dy angle − pitch"), loc="upper left")
 
     raw_altitude_line, = barometer_axis.plot([], [], "--", color="#f97316", alpha=0.8, label="raw barometer altitude")
@@ -277,6 +285,7 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
     true_altitude_line, = barometer_axis.plot([], [], ":", color="#16a34a", label="true PyBullet altitude")
     barometer_axis.set(xlabel="time (s)", ylabel="altitude (m)", title="BMP388 altitude EMA filter")
     barometer_axis.grid(alpha=0.25)
+    control_switch_lines.append(barometer_axis.axvline(float("nan"), color="#be123c", linestyle="--", linewidth=1.2, label="DY → TTC"))
     barometer_axis.legend()
     figure.tight_layout(rect=(0, 0, 1, 0.98))
     return TelemetryPlot(
@@ -300,6 +309,7 @@ def make_plot(config: StrikeConfig, scene: SceneConfig, scenario_name: str = "de
         ttc_gate_line,
         growth_gate_line,
         config.ttc_activation_s,
+        tuple(control_switch_lines),
         alignment_zero_px,
         alignment_zero_angle,
         (vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, target_slope_line, measured_slope_line, command_vx_line, command_vz_line, pid_vz_target_line, camera_dy_correction_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line),
@@ -373,6 +383,20 @@ def _set_gate_line(line: object, time_s: float | None) -> None:
     line.set_xdata([value, value])
 
 
+def _first_dy_to_ttc_time(log: FlightLog) -> float | None:
+    """Return the first recorded time where vertical control enters TTC mode."""
+    for time_s, previous, current in zip(log.time_s[1:], log.vertical_control_mode, log.vertical_control_mode[1:]):
+        if previous == "dy" and current == "ttc":
+            return time_s
+    return None
+
+
+def _set_switch_lines(lines: tuple[object, ...], time_s: float | None) -> None:
+    """Show or hide the shared DY-to-TTC transition markers."""
+    for line in lines:
+        _set_gate_line(line, time_s)
+
+
 def refresh_plot(plot: TelemetryPlot, log: FlightLog, autoscale: bool = True, max_points: int | None = None) -> None:
     """Update the figure, optionally limiting rendered history and rescaling."""
     vx_line, velocity_command_line, vz_line, path_line, tracking_path_line, target_slope_line, measured_slope_line, command_vx_line, command_vz_line, pid_vz_target_line, camera_dy_correction_line, command_altitude_line, thrust_line, pitch_line, measured_pitch_line, raw_growth_line, filtered_growth_line, raw_ttc_line, filtered_ttc_line, dx_line, dy_line, dx_angle_line, dy_angle_line, compensated_dy_line, raw_altitude_line, filtered_altitude_line, true_altitude_line = plot.lines
@@ -414,6 +438,7 @@ def refresh_plot(plot: TelemetryPlot, log: FlightLog, autoscale: bool = True, ma
     filtered_ttc_line.set_data(times, ttc_values(recent(log.ttc_s)))
     _set_gate_line(plot.ttc_gate_line, ttc_gate_time)
     _set_gate_line(plot.growth_gate_line, _first_time(log.bbox_growth_px_s, log.time_s, lambda value: True))
+    _set_switch_lines(plot.control_switch_lines, _first_dy_to_ttc_time(log))
     dx_line.set_data(times, tracking_values(recent(log.bbox_center_dx_px)))
     dy_line.set_data(times, tracking_values(recent(log.bbox_center_dy_px)))
     dx_angle_line.set_data(times, tracking_values(recent(log.bbox_center_dx_deg)))

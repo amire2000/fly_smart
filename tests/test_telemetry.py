@@ -1,6 +1,6 @@
 from math import atan, degrees, isclose, radians, tan
 
-from fly_smart.guidance import FlightPhase, GuidanceCommand
+from fly_smart.guidance import FlightPhase, GuidanceCommand, VerticalControlMode
 from fly_smart.simulation.config import StrikeConfig
 from fly_smart.simulation.telemetry import FlightLog, make_plot, refresh_plot
 from fly_smart.trajectory import TrajectoryCommand
@@ -108,4 +108,28 @@ def test_live_plot_can_render_bounded_recent_history():
     refresh_plot(plot, log, max_points=2)
     assert len(plot.lines[0].get_xdata()) == 2
     assert list(plot.lines[0].get_xdata()) == [3.0, 4.0]
+    plt.close(plot.figure)
+
+
+def test_plot_marks_first_dy_to_ttc_switch_on_time_axes():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    config = StrikeConfig()
+    plot = make_plot(config, config.simulation)
+    log = FlightLog()
+    for time_s, mode in ((4.0, "dy"), (6.8, "ttc"), (7.0, "dy"), (7.2, "ttc")):
+        command = GuidanceCommand(
+            FlightPhase.TRACK,
+            1.0,
+            0.0,
+            TrajectoryCommand(13.0, -1.5, 15.0),
+            vertical_control_mode=VerticalControlMode(mode),
+        )
+        log.append(time_s, (time_s, 0.0, 15.0), (1.0, 0.0, 0.0), command)
+    refresh_plot(plot, log)
+
+    assert len(plot.control_switch_lines) == 7
+    assert all(list(line.get_xdata()) == [6.8, 6.8] for line in plot.control_switch_lines)
     plt.close(plot.figure)

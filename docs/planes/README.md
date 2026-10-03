@@ -36,3 +36,4 @@ for work that has not been committed yet.
 | [rl-pid-hover-baseline.md](rl-pid-hover-baseline.md) | Four-action PID baseline for a 3 m hover check. | `pending` |
 | [rl-adrc-hover-baseline.md](rl-adrc-hover-baseline.md) | Four-action ESO-based ADRC baseline for a 3 m hover check. | `pending` |
 | [adrc-guidance-switch.md](adrc-guidance-switch.md) | ADRC pitch/thrust control for TTC and bbox-DY tracking modes. | `pending` |
+| [dy-to-ttc-plot-marker.md](dy-to-ttc-plot-marker.md) | Mark the first DY-to-TTC vertical-control handoff on time-series telemetry plots. | `pending` |
