@@ -9,11 +9,11 @@ produces a trajectory, pitch target, thrust command, and vertical-control mode.
 
 ```mermaid
 flowchart TD
-    A[GuidanceInput arrives in TRACK] --> B{Target visible?}
-    B -->|No| C{commit_ready and last_observation?}
-    C -->|Yes| D[Enter COMMIT]
+    A[GuidanceInput arrives in TRACK] --> B{commit_ready and valid last TTC?}
+    B -->|Yes| D[Enter COMMIT]
+    B -->|No| C{Target visible?}
     C -->|No| E[Enter ABORT]
-    B -->|Yes| F{Current TTC observation exists and TTC <= activation gate?}
+    C -->|Yes| F{Current TTC observation exists and TTC <= activation gate?}
     F -->|Yes| G[TTC mode]
     F -->|No| H[DY mode]
 
@@ -34,7 +34,7 @@ flowchart TD
     S --> T[Vertical-velocity PID and actual-pitch lift compensation]
     T --> U[Return GuidanceCommand]
 
-    D --> V[Hold last pitch and valid descent target]
+    D --> V[Brake forward motion and hold valid descent target]
     E --> W[Zero forward pitch and damp vertical motion]
 ```
 
@@ -60,9 +60,19 @@ flowchart TD
 7. **Thrust**: vertical-velocity PID corrects measured barometer velocity error.
    Collective force is divided by `max(cos(measured_pitch), 0.5)` so world-
    vertical lift is maintained while the vehicle is tilted.
-8. **Valid-TTC memory**: only a valid TTC update stores
-   `last_tracking_descent_velocity_mps`, which is the descent target available
-   if the target is later lost and COMMIT begins.
+8. **COMMIT gate and braking**: once the bbox threshold and a finite positive
+   TTC are available, COMMIT starts immediately, even while the target remains
+   visible, so braking begins before the target x-position. The normal TTC
+   activation gate still controls whether TTC is trusted for live tracking,
+   but a longer finite TTC can still support terminal commit. COMMIT replaces
+   the normal forward-flight command with zero forward target, a bounded
+   braking pitch, and the bounded terminal descent rate; invalid TTC on target
+   loss enters ABORT.
+
+The default scenario uses a `1.5 m/m` pre-TTC descent slope. The previous
+`0.5 m/m` slope left the vehicle around 4 m above the target when it crossed
+the target x-position, even after terminal braking. The reusable core default
+remains unchanged; this is a scenario-level flight-path tuning choice.
 
 ## Runtime sequence
 
@@ -103,7 +113,7 @@ sequenceDiagram
 
     alt Target lost after commit-ready observation
         R->>G: update(target_visible=false)
-        G-->>R: COMMIT command with held pitch/descent target
+        G-->>R: COMMIT command with braking pitch/descent target
     else Target lost before commit readiness
         R->>G: update(target_visible=false)
         G-->>R: ABORT command with zero pitch

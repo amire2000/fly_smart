@@ -52,13 +52,14 @@ def self_check() -> None:
     reading = BarometerReading(config.takeoff_altitude_m, 0.0)
     guidance.update(GuidanceInput(0.0, reading, observation, observation, True, False))
     assert guidance.phase == FlightPhase.TRACK
-    tracked = guidance.update(GuidanceInput(0.1, reading, observation, observation, True, True))
+    tracked = guidance.update(GuidanceInput(0.1, reading, observation, observation, True, False))
     assert tracked.pitch_target_rad > 0.0 and tracked.thrust_n > 0.0
-    hold = guidance.update(GuidanceInput(0.2, reading, None, observation, True, True))
+    hold = guidance.update(GuidanceInput(0.2, reading, None, observation, True, False))
     assert hold.pitch_target_rad == config.nominal_pitch_rad and hold.trajectory.vertical_velocity_mps == -config.ttc_unavailable_descent_velocity_mps
     committed = guidance.update(GuidanceInput(0.3, reading, None, observation, False, True))
     assert committed.phase == FlightPhase.COMMIT
-    assert committed.pitch_target_rad == hold.pitch_target_rad
+    assert committed.pitch_target_rad == 0.0
+    assert committed.trajectory and committed.trajectory.forward_velocity_mps == 0.0
     settled_commit = guidance.update(GuidanceInput(0.4, BarometerReading(reading.altitude_m, -4.5), None, observation, False, True))
     assert settled_commit.thrust_n > committed.thrust_n, "Commit must preserve the last TTC descent target"
     print("TTC strike component self-check passed")

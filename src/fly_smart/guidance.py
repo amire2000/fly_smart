@@ -72,8 +72,8 @@ class StrikeGuidance:
       bounded collective-thrust correction around hover thrust.
 
     ``ABORT`` reuses ``altitude_pid`` with zero altitude error to damp vertical
-    velocity. ``COMMIT`` freezes the last pitch and descent-rate target, then
-    continues the barometer-driven thrust ADRC without camera measurements.
+    velocity. ``COMMIT`` brakes forward motion and continues the valid stored
+    descent target with barometer-driven thrust ADRC without camera measurements.
     """
 
     def __init__(self, config: MissionConfig) -> None:
@@ -87,8 +87,6 @@ class StrikeGuidance:
         self._last_update_s = 0.0
         self.last_command = GuidanceCommand(self.phase, config.hover_thrust_n, 0.0, None)
         self.commit_deadline_s: float | None = None
-        self.commit_descent_velocity_mps: float | None = None
-        self.last_tracking_descent_velocity_mps: float | None = None
 
     def update(self, data: GuidanceInput) -> GuidanceCommand:
         """Advance the guidance state machine by one control tick.
@@ -99,10 +97,11 @@ class StrikeGuidance:
           camera observation starts ``TRACK``.
         - ``TRACK`` converts visible-target TTC and barometer readings into a
           forward-velocity and vertical-velocity trajectory command.
-        - Losing the target enters ``COMMIT`` only after a valid final TTC
-          observation; it otherwise enters ``ABORT``.
-        - ``COMMIT`` keeps the final pitch and descent-rate target while its
-          vertical PID updates collective thrust until the TTC deadline.
+        - Losing the target enters ``COMMIT`` only after a finite positive
+          final TTC observation; it otherwise enters ``ABORT``.
+        - ``COMMIT`` brakes forward motion and keeps the valid descent-rate
+          target while its thrust ADRC updates collective thrust until the TTC
+          deadline.
         - ``ABORT`` removes pitch and damps vertical motion with hover thrust.
 
         Returns a ``GuidanceCommand`` for the current phase. ``reset_ttc``
@@ -125,7 +124,6 @@ class StrikeGuidance:
             if ready and stable and data.last_observation:
                 self.phase = FlightPhase.TRACK
                 self._reset_adrc(data)
-                self.last_tracking_descent_velocity_mps = None
                 # The camera estimate was accumulated during takeoff. Ignore
                 # it for this first track command and reset the tracker, so a
                 # fresh observation starts the tracking phase.
@@ -133,27 +131,23 @@ class StrikeGuidance:
             self.last_command = command
             return command
 
-        if self.phase == FlightPhase.TRACK and not data.target_visible:
-            # TRACK uses live camera observations to update the trajectory. If
-            # the target leaves view after the configured commit condition,
-            # freeze the final pitch and corrected descent-rate target for the
-            # short predicted remaining time. If there is no reliable final
-            # observation, stop tracking instead.
-            if data.commit_ready and data.last_observation:
-                self.phase = FlightPhase.COMMIT
-                self.commit_deadline_s = data.now_s + data.last_observation.ttc_s + self.config.commit_timeout_margin_s
-                # A control tick can run after the last camera frame. Preserve
-                # the descent target from the last *valid TTC* observation,
-                # not a later no-observation altitude-hold command.
-                self.commit_descent_velocity_mps = self.last_tracking_descent_velocity_mps
-            else:
-                self.phase = FlightPhase.ABORT
+        if self.phase == FlightPhase.TRACK and data.commit_ready and self._valid_ttc(data.last_observation):
+            # Arm terminal guidance while the target is still visible. Waiting
+            # for target loss leaves no distance to brake before impact.
+            self.phase = FlightPhase.COMMIT
+            self.commit_deadline_s = data.now_s + data.last_observation.ttc_s + self.config.commit_timeout_margin_s
+        elif self.phase == FlightPhase.TRACK and not data.target_visible:
+            # Target loss before terminal guidance has a reliable observation
+            # is unsafe to extrapolate, so stop forward guidance.
+            self.phase = FlightPhase.ABORT
 
         if self.phase == FlightPhase.COMMIT:
-            # Keep lateral guidance blind and fixed, but keep altitude control
-            # closed-loop: constant thrust would eventually arrest descent or
-            # cause a climb as the airframe attitude and velocity change.
-            desired_vz = self.commit_descent_velocity_mps or 0.0
+            # Keep altitude control closed-loop while braking forward velocity.
+            # Holding the tracking pitch carries the vehicle past the target
+            # before it reaches the impact altitude.
+            desired_vz = -self.config.max_descent_velocity_mps if data.forward_velocity_mps > 0.5 else 0.0
+            trajectory = replace(self.last_command.trajectory, forward_velocity_mps=0.0) if self.last_command.trajectory else None
+            pitch = -self.config.max_pitch_rad if data.forward_velocity_mps > 0.5 else 0.0
             self._ensure_adrc(data)
             thrust_correction, self.thrust_adrc = self.thrust_adrc.update(
                 desired_vz,
@@ -165,8 +159,8 @@ class StrikeGuidance:
             command = GuidanceCommand(
                 self.phase,
                 thrust,
-                self.last_command.pitch_target_rad,
-                self.last_command.trajectory,
+                pitch,
+                trajectory,
                 commit_expired=data.now_s > (self.commit_deadline_s or data.now_s),
                 vertical_velocity_target_mps=desired_vz,
                 vertical_control_mode=VerticalControlMode.COMMIT,
@@ -185,6 +179,10 @@ class StrikeGuidance:
         # forward/descent trajectory, then let the velocity loops form pitch
         # and collective-thrust commands in _track_command().
         return self._track_command(data)
+
+    def _valid_ttc(self, observation: TtcObservation | None) -> bool:
+        """Return whether an observation is safe to use for terminal commit."""
+        return observation is not None and observation.ttc_s > 0.0 and isfinite(observation.ttc_s)
 
     def _track_command(self, data: GuidanceInput) -> GuidanceCommand:
         ttc_valid = data.observation is not None and data.observation.ttc_s <= self.config.ttc_activation_s
@@ -210,8 +208,6 @@ class StrikeGuidance:
         if data.target_visible and data.observation is None:
             pitch = min(self.config.max_pitch_rad + self.config.ttc_unavailable_pitch_boost_rad, pitch + self.config.ttc_unavailable_pitch_boost_rad)
         corrected_vz = self._corrected_vertical_velocity(trajectory, data.barometer.altitude_m)
-        if ttc_valid:
-            self.last_tracking_descent_velocity_mps = corrected_vz
         thrust_correction, self.thrust_adrc = self.thrust_adrc.update(corrected_vz, data.barometer.vertical_velocity_mps, dt)
         vertical_force = self.config.hover_thrust_n + thrust_correction
         # Keep world-vertical lift constant while the rotor disk tilts forward.

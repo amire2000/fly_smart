@@ -134,3 +134,27 @@ def test_dy_mode_targets_a_forward_speed_proportional_descent():
     terminal = guidance.update(GuidanceInput(0.3, reading, valid, valid, True, False, forward_velocity_mps=10.0))
     assert terminal.vertical_control_mode == VerticalControlMode.TTC
     assert terminal.path_slope_target_m_per_m is None
+
+
+def test_target_loss_without_valid_ttc_aborts_instead_of_committing():
+    config = MissionConfig()
+    guidance = StrikeGuidance(config)
+    reading = BarometerReading(config.takeoff_altitude_m, 0.0)
+    observation = TtcObservation((0, 0, 48, 48), 48.0, 1.0, float("nan"), 1.0, float("nan"))
+    guidance.update(GuidanceInput(0.0, reading, observation, observation, True, True, forward_velocity_mps=9.0))
+    command = guidance.update(GuidanceInput(0.1, reading, None, observation, False, True, forward_velocity_mps=9.0))
+    assert command.phase == FlightPhase.ABORT
+    assert command.pitch_target_rad == 0.0
+
+
+def test_valid_commit_brakes_forward_motion():
+    config = MissionConfig()
+    guidance = StrikeGuidance(config)
+    reading = BarometerReading(config.takeoff_altitude_m, 0.0)
+    observation = TtcObservation((0, 0, 48, 48), 48.0, 1.0, 6.0, 1.0, 6.0)
+    guidance.update(GuidanceInput(0.0, reading, observation, observation, True, True, forward_velocity_mps=9.0))
+    command = guidance.update(GuidanceInput(0.1, reading, None, observation, False, True, forward_velocity_mps=9.0))
+    assert command.phase == FlightPhase.COMMIT
+    assert command.trajectory is not None
+    assert command.trajectory.forward_velocity_mps == 0.0
+    assert command.pitch_target_rad < 0.0
