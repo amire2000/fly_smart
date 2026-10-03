@@ -26,7 +26,7 @@ class PyBulletHoverEnv(gym.Env):
         self.task = HoverTask(hover_altitude_m)
         self.renderer = PyBulletProgressRenderer(hover_altitude_m) if render_mode == "human" else None
         self.action_space = spaces.Box(-1.0, 1.0, shape=(4,), dtype=np.float32)
-        self.observation_space = spaces.Box(-1.0, 1.0, shape=(15,), dtype=np.float32)
+        self.observation_space = spaces.Box(-1.0, 1.0, shape=(10,), dtype=np.float32)
         self._step_count = 0
         self._last_action = np.zeros(4, dtype=np.float32)
 
@@ -48,8 +48,8 @@ class PyBulletHoverEnv(gym.Env):
         state = self.simulator.step(action)
         self._step_count += 1
         observation = self.task.observation(state.drone, state.physics)
-        reward = self.task.reward(state.drone, action) - 0.01 * float(np.dot(action - self._last_action, action - self._last_action))
         terminated, reason = self.task.terminated(state.drone)
+        reward = self.task.reward(state.drone, action, terminated) - 0.02 * float(np.dot(action - self._last_action, action - self._last_action))
         truncated = self._step_count >= self.max_episode_steps and not terminated
         self._last_action = action.copy()
         info = {"step": self._step_count, "termination_reason": reason, "altitude_m": state.drone.position_m[2]}

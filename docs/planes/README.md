@@ -32,3 +32,5 @@ for work that has not been committed yet.
 | [simulation-main-loop.md](simulation-main-loop.md) | Explain the simulation control loop, timing domains, and Godot/plot data flow. | `pending` |
 | [tracking-phase-guidance.md](tracking-phase-guidance.md) | Explain TRACK-phase TTC/DY guidance decisions with flow and sequence diagrams. | `pending` |
 | [rl-gymnasium-hover.md](rl-gymnasium-hover.md) | Gymnasium hover environment around the PyBullet flight engine. | `pending` |
+| [rl-ppo-training.md](rl-ppo-training.md) | PPO training, checkpoints, and deterministic hover evaluation. | `pending` |
+| [rl-pid-hover-baseline.md](rl-pid-hover-baseline.md) | Four-action PID baseline for a 3 m hover check. | `pending` |

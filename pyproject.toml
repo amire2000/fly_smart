@@ -13,11 +13,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-rl = ["gymnasium>=0.29"]
+rl = ["gymnasium>=0.29", "stable-baselines3>=2.3"]
 
 [project.scripts]
 fly-smart = "fly_smart.simulation.cli:main"
 fly-smart-rl = "fly_smart.rl.cli:main"
+fly-smart-rl-train = "fly_smart.rl.train_cli:main"
+fly-smart-pid-hover = "fly_smart.rl.pid_hover_cli:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -48,6 +48,20 @@
       "command": "uv run fly-smart-rl --render",
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Train Fly Smart RL",
+      "type": "shell",
+      "command": "uv run fly-smart-rl-train --render",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
+      "label": "Check PID Hover",
+      "type": "shell",
+      "command": "uv run fly-smart-pid-hover --render",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     }
   ]
 }
