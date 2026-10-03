@@ -31,3 +31,4 @@ for work that has not been committed yet.
 | [red-target-tracker-package.md](red-target-tracker-package.md) | Move the reusable red-target detector under `fly_smart.trackers`. | `pending` |
 | [simulation-main-loop.md](simulation-main-loop.md) | Explain the simulation control loop, timing domains, and Godot/plot data flow. | `pending` |
 | [tracking-phase-guidance.md](tracking-phase-guidance.md) | Explain TRACK-phase TTC/DY guidance decisions with flow and sequence diagrams. | `pending` |
+| [rl-gymnasium-hover.md](rl-gymnasium-hover.md) | Gymnasium hover environment around the PyBullet flight engine. | `pending` |

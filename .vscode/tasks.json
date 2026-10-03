@@ -41,6 +41,13 @@
       "type": "shell",
       "command": "uv run fly-smart --self-check",
       "problemMatcher": []
+    },
+    {
+      "label": "Run Fly Smart RL",
+      "type": "shell",
+      "command": "uv run fly-smart-rl --render",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
     }
   ]
 }
