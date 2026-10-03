@@ -9,6 +9,7 @@ from gymnasium.utils.env_checker import check_env
 from fly_smart.rl import PyBulletHoverEnv
 from fly_smart.rl.ppo_train import train_and_evaluate
 from fly_smart.rl.pid_hover import HoverPidController
+from fly_smart.rl.adrc_hover import AdrcAxis, AdrcSettings, HoverAdrcController
 
 
 def test_hover_environment_passes_gymnasium_checker():
@@ -63,3 +64,18 @@ def test_hover_reward_penalizes_altitude_failure():
         assert failed_reward < -20.0
     finally:
         env.close()
+
+
+def test_adrc_output_is_bounded_and_observer_resets():
+    env = PyBulletHoverEnv(max_episode_steps=1)
+    try:
+        state = env.simulator.reset().drone
+        controller = HoverAdrcController()
+        controller.reset(state)
+        action = controller.action(state)
+        assert np.all(action >= -1.0) and np.all(action <= 1.0)
+    finally:
+        env.close()
+    axis = AdrcAxis(AdrcSettings(3.0, 1.0))
+    axis.reset(2.0)
+    assert axis.z1 == 2.0 and axis.z2 == 0.0 and axis.z3 == 0.0

@@ -20,6 +20,7 @@ fly-smart = "fly_smart.simulation.cli:main"
 fly-smart-rl = "fly_smart.rl.cli:main"
 fly-smart-rl-train = "fly_smart.rl.train_cli:main"
 fly-smart-pid-hover = "fly_smart.rl.pid_hover_cli:main"
+fly-smart-adrc-hover = "fly_smart.rl.adrc_hover_cli:main"
 
 [build-system]
 requires = ["hatchling"]

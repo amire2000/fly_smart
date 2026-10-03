@@ -34,3 +34,4 @@ for work that has not been committed yet.
 | [rl-gymnasium-hover.md](rl-gymnasium-hover.md) | Gymnasium hover environment around the PyBullet flight engine. | `pending` |
 | [rl-ppo-training.md](rl-ppo-training.md) | PPO training, checkpoints, and deterministic hover evaluation. | `pending` |
 | [rl-pid-hover-baseline.md](rl-pid-hover-baseline.md) | Four-action PID baseline for a 3 m hover check. | `pending` |
+| [rl-adrc-hover-baseline.md](rl-adrc-hover-baseline.md) | Four-action ESO-based ADRC baseline for a 3 m hover check. | `pending` |
