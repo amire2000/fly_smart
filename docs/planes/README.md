@@ -37,3 +37,5 @@ for work that has not been committed yet.
 | [rl-adrc-hover-baseline.md](rl-adrc-hover-baseline.md) | Four-action ESO-based ADRC baseline for a 3 m hover check. | `pending` |
 | [adrc-guidance-switch.md](adrc-guidance-switch.md) | ADRC pitch/thrust control for TTC and bbox-DY tracking modes. | `pending` |
 | [dy-to-ttc-plot-marker.md](dy-to-ttc-plot-marker.md) | Mark the first DY-to-TTC vertical-control handoff on time-series telemetry plots. | `pending` |
+| [offline-flight-analyzer.md](offline-flight-analyzer.md) | Separate SOLID desktop tool for synchronized recorded-flight movie, telemetry, state, and graph review. | `pending` |
+| [vscode-offline-analyzer-task.md](vscode-offline-analyzer-task.md) | VS Code task that launches the offline flight analyzer and opens its run-folder picker. | `pending` |

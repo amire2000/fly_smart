@@ -43,6 +43,13 @@
       "problemMatcher": []
     },
     {
+      "label": "Run Offline Flight Analyzer",
+      "type": "shell",
+      "command": "uv run fly-smart-analyze",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+    },
+    {
       "label": "Check ADRC Hover",
       "type": "shell",
       "command": "uv run fly-smart-adrc-hover --render",
