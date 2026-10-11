@@ -23,6 +23,10 @@ For the camera, bounding-box, TTC, pitch, and altitude-control data flow, see
 For the per-cycle image-to-motor control method, see
 [Image-to-control method flow](control-method-flow.md).
 
+For the slant path from takeoff completion to target contact, including sensor
+influence, RPY/throttle ownership, diagrams and control-design limitations, see
+[Trajectory algorithm](trajectory_algo.md).
+
 ### Scenario YAML
 
 Initial conditions can be changed without editing Python. The sample
