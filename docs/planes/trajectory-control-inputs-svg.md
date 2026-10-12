@@ -21,11 +21,11 @@ Mark the diagram as proposed and schematic, label transition conditions,
 include target-loss recovery, and link it from the trajectory document. Check
 SVG XML and render/inspect the final layout. No flight behavior changes.
 
-Implementation commit: `pending`.
+Implementation commit: `690d24e`.
 
 ## Implementation update
 
 The vector asset now depicts implemented DY PD, bearing-guarded TTC blending,
 shared vertical PI and a braked level finish. XML parsing and PNG rendering
 are part of validation; the curve remains schematic, not measured telemetry.
-Implementation commit: `pending`.
+Implementation commit: `690d24e`.

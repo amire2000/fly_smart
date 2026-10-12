@@ -1,6 +1,6 @@
 # Faster horizontal approach
 
-Implementation commit: `pending`. Implemented; simulation checks recorded below.
+Implementation commit: `690d24e`. Implemented; simulation checks recorded below.
 
 ## Intent and current control
 

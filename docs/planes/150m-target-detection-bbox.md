@@ -1,6 +1,6 @@
 # 150 m detection and Godot bbox alignment
 
-Implementation commit: `pending`.
+Implementation commit: `690d24e`.
 
 ## Reproduced failures
 

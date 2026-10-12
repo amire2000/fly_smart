@@ -26,7 +26,7 @@ explicit exit path.
 150 m extension: add the value to both the Godot dropdown and Python's accepted
 reset presets. Keep target placement and reset behavior unchanged. Check UDP
 control decoding and Godot script parsing; this does not qualify flight guidance
-at 150 m. Implementation commit: `pending`.
+at 150 m. Implementation commit: `690d24e`.
 
 The supported values are an explicit finite set in Python. Invalid or missing
 values leave the current target unchanged. Tests cover control-message

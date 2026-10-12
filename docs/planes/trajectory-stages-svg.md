@@ -18,11 +18,11 @@ Link the drawing from `docs/trajectory_algo.md` with an explicit proposed-design
 caption. Validate SVG XML, render and visually inspect it. No controller,
 configuration, dependencies or generated flight data changes.
 
-Implementation commit: `pending`.
+Implementation commit: `690d24e`.
 
 ## Implementation update
 
 The vector asset now depicts implemented DY PD, bearing-guarded TTC blending,
 shared vertical PI and a braked level finish. XML parsing and PNG rendering
 are part of validation; the curve remains schematic, not measured telemetry.
-Implementation commit: `pending`.
+Implementation commit: `690d24e`.

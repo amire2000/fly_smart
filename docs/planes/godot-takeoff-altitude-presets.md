@@ -1,6 +1,6 @@
 # Godot reset takeoff-altitude presets
 
-Implementation commit: `pending`.
+Implementation commit: `690d24e`.
 
 ## Intent and interface
 

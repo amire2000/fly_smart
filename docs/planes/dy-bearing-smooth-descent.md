@@ -1,7 +1,7 @@
 # DY-first descent, gated TTC and shared PI
 
 Status: implemented and validated in simulation. Implementation commit:
-`pending`. This supersedes altitude-hold-before-TTC and unconditional pre-TTC
+`690d24e`. This supersedes altitude-hold-before-TTC and unconditional pre-TTC
 slope descent. [Control explanation](../trajectory_algo.md),
 [stages](../trajectory_stages.svg), [input graph](../trajectory_control_inputs.svg).
 
