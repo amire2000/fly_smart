@@ -14,6 +14,7 @@ from .config_loader import load_yaml_config
 from ..guidance import FlightPhase, GuidanceInput, StrikeGuidance
 from .godot_bridge import GodotBridge
 from ..sensing import BarometerReading
+from ..visual_guidance import VisualEstimate
 from .runner import StrikeSimulation
 from ..trajectory import TtcDescentPlanner
 from ..ttc import BboxTtcTracker
@@ -42,25 +43,21 @@ def self_check() -> None:
     trajectory = planner.command(1.0, config.takeoff_altitude_m)
     assert trajectory.forward_velocity_mps == config.forward_speed_mps
     assert trajectory.vertical_velocity_mps == -config.max_descent_velocity_mps
-    assert planner.command(None, config.takeoff_altitude_m).vertical_velocity_mps == -config.ttc_unavailable_descent_velocity_mps
-    assert planner.command(None, config.takeoff_altitude_m).altitude_target_m == config.takeoff_altitude_m
-
+    assert planner.command(None, config.takeoff_altitude_m).vertical_velocity_mps == 0
     guidance = StrikeGuidance(config)
     fast_reading = BarometerReading(0.0, config.takeoff_max_climb_velocity_mps + 0.1)
-    guarded_takeoff = guidance.update(GuidanceInput(0.0, fast_reading, None, None, False, False))
-    assert guarded_takeoff.thrust_n <= config.hover_thrust_n
+    assert guidance.update(GuidanceInput(0.0, fast_reading)).thrust_n <= config.hover_thrust_n
     reading = BarometerReading(config.takeoff_altitude_m, 0.0)
-    guidance.update(GuidanceInput(0.0, reading, observation, observation, True, False))
-    assert guidance.phase == FlightPhase.TRACK
-    tracked = guidance.update(GuidanceInput(0.1, reading, observation, observation, True, True))
-    assert tracked.pitch_target_rad > 0.0 and tracked.thrust_n > 0.0
-    hold = guidance.update(GuidanceInput(0.2, reading, None, observation, True, True))
-    assert hold.pitch_target_rad == config.nominal_pitch_rad and hold.trajectory.vertical_velocity_mps == -config.ttc_unavailable_descent_velocity_mps
-    committed = guidance.update(GuidanceInput(0.3, reading, None, observation, False, True))
-    assert committed.phase == FlightPhase.COMMIT
-    assert committed.pitch_target_rad == hold.pitch_target_rad
-    settled_commit = guidance.update(GuidanceInput(0.4, BarometerReading(reading.altitude_m, -4.5), None, observation, False, True))
-    assert settled_commit.thrust_n > committed.thrust_n, "Commit must preserve the last TTC descent target"
+    guidance.update(GuidanceInput(.01, reading))
+    assert guidance.phase == FlightPhase.ACQUIRE
+    for i in range(2, 30):
+        now = i / 120
+        tracked = guidance.update(GuidanceInput(now, reading, VisualEstimate(now, i, True, 8)))
+    assert tracked.phase == FlightPhase.TRACK and tracked.vertical_velocity_target_mps < 0
+    assert tracked.ttc_weight == 0
+    recovered = guidance.update(GuidanceInput(.3, reading))
+    assert recovered.phase == FlightPhase.RECOVER
+    assert guidance.update(GuidanceInput(1.31, reading)).phase == FlightPhase.ABORT
     print("TTC strike component self-check passed")
 
 

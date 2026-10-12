@@ -1,12 +1,15 @@
 # TTC diagonal-strike package
 
-This Module 7 proof of concept takes off to 15 m, detects a red cube, estimates
-time-to-contact (TTC) from bounding-box growth, synchronises its descent to the
-known impact altitude, and records the contact. The controller does **not** need
-the cube's metric size, image centre, focal length, or world position. Those
-values exist only in `SimulationConfig` so the simulator can spawn and draw a
-target.
-Roll and yaw remain zero in this first exercise.
+This simulation takes off to 15 m, detects a red target and starts descending
+from calibrated vertical bearing. Independently qualified bbox-growth TTC
+refines descent timing through a smooth handoff. A shared vertical-speed PI
+controls thrust; horizontal bearing PD controls roll and yaw holds the initial
+heading. Forward pitch is bounded rather than driven by simulator velocity.
+
+Guidance needs camera calibration, IMU attitude, fused barometer/vertical-IMU
+state and known target-centre altitude. It does not consume target range, metric
+size, world coordinates or simulator forward velocity. The current equations,
+state diagrams and limitations are in [Trajectory algorithm](trajectory_algo.md).
 
 Run it with:
 
@@ -14,8 +17,8 @@ Run it with:
 uv run fly-smart
 ```
 
-For the complete command, YAML, output, and troubleshooting guide, see
-[`ttc_strike_usage.md`](../ttc_strike_usage.md).
+Use `uv run fly-smart --help` for command options and
+[the scenario template](../configs/scenario.template.yaml) for supported YAML tuning.
 
 For the camera, bounding-box, TTC, pitch, and altitude-control data flow, see
 [How Fly Smart works](how-it-works.md).
@@ -29,51 +32,31 @@ influence, RPY/throttle ownership, diagrams and control-design limitations, see
 
 ### Scenario YAML
 
-Initial conditions can be changed without editing Python. The sample
-`config/scenario.yaml` groups simulator setup separately from field-tunable runtime
-parameters:
+Initial conditions and tuning are independent groups in `configs/scenario.yaml`:
 
 ```yaml
 simulation:
-  vehicle_model:
-    profile: default
   scene:
     launch_position: [-5.25, 0.0, 0.05]
-    target_center: [20.0, 0.0, 1.0]
+    target_center: [24.75, 0.0, 1.0]
 runtime:
   mission:
     takeoff_altitude_m: 15.0
-  ttc:
-    commit_box_height_fraction: 0.1
+    impact_altitude_m: 1.0
+  guidance:
+    approach_pitch_deg: 7.0
+    ttc_dwell_s: 0.3
+    ttc_blend_s: 0.5
 ```
-
-Run it with:
 
 ```bash
-uv run fly-smart \
-  --config examples/07-optical-navigation/ttc_strike/config/scenario.yaml
+uv run fly-smart --config configs/scenario.yaml
 ```
 
-For the shorter 30 m test, use
-`examples/07-optical-navigation/ttc_strike_inputs/30m_diagonal_strike.yaml`:
-
-```bash
-uv run fly-smart \
-  --config examples/07-optical-navigation/ttc_strike_inputs/30m_diagonal_strike.yaml
-```
-
-`box.position` changes only where the simulator spawns the visual target;
-the controller still uses image measurements and TTC. The YAML does not
-change the existing 1 m impact altitude. For a distant target, lower
-`commit_box_height_fraction` so a small bbox can enter the commit phase before
-leaving the camera view. The resolved values and source path are recorded in
-each run's `settings.json`.
-
-The complete commented schema is in
-`examples/07-optical-navigation/ttc_strike_inputs/template.yaml`. The loader
-creates `SimulationConfig` and `RuntimeConfig` independently, then composes
-them into `StrikeConfig`; the simulator and controllers receive typed config,
-not YAML parsing responsibilities.
+Target coordinates configure the simulator only. Commit uses fresh qualified
+TTC, alignment and a 0.3 s maximum; bbox size no longer arms guidance. Resolved
+settings are recorded per run. See `configs/scenario.template.yaml` for tuning.
+RuntimeConfig shares MissionConfig defaults; adapters own YAML parsing.
 
 ### Drone profiles and physical ownership
 
@@ -142,8 +125,9 @@ fly_smart/
 ├── mission.py      production mission and controller configuration
 ├── sensing.py      sensor readings and vertical state fusion
 ├── ttc.py          BboxTtcTracker: bbox scale growth to TTC
-├── trajectory.py   TtcDescentPlanner: TTC + altitude to vx/vz target
-├── guidance.py     StrikeGuidance: takeoff, track, commit, abort
+├── visual_guidance.py Calibrated bearing, capture freshness and TTC confidence
+├── trajectory.py   VerticalTargetPlanner: DY/TTC blend, braking and speed reference
+├── guidance.py     StrikeGuidance: takeoff, acquire, track, recover, commit, abort
 ├── trackers/red_target_detector.py RGB frame to target bounding box
 └── simulation/     PyBullet, Godot, synthetic sensors, telemetry, and CLI
 ```
@@ -165,12 +149,15 @@ classDiagram
     class TtcDescentPlanner { +command(ttc_s, altitude_m) TrajectoryCommand }
     class TrajectoryCommand { +forward_velocity_mps +vertical_velocity_mps +altitude_target_m }
     class StrikeGuidance { +update(GuidanceInput) GuidanceCommand }
-    class GuidanceInput { +barometer +observation +measured_pitch_rad +target_visible +commit_ready }
-    class GuidanceCommand { +phase +thrust_n +pitch_target_rad }
+    class GuidanceInput { +now_s +barometer +visual +attitude_rad }
+    class GuidanceCommand { +phase +thrust_n +roll_target_rad +pitch_target_rad +yaw_target_rad +ttc_weight }
+    class VisualGuidanceEstimator { +update(box, capture_time, frame_id, attitude, now) VisualEstimate }
+    class VerticalTargetPlanner { +command(altitude, bearing, rate, TTC, dt) }
+    class VerticalSpeedController { +update(reference, measured_speed, attitude, dt) }
     class FlightLog { +append(now_s, position, velocity, command, pitch_torque) }
     class StrikeSimulation { +run(gui, max_seconds, video, plot) StrikeResult }
     SimulationConfig --> StrikeSimulation : scene and display
-    RuntimeConfig --> Barometer : runtime sensor filter
+    SimulationConfig --> Barometer : synthetic sensor model
     RuntimeConfig --> BboxTtcTracker : TTC tuning
     RuntimeConfig --> TtcDescentPlanner : trajectory limits
     RuntimeConfig --> StrikeGuidance : PID and mission tuning
@@ -178,9 +165,12 @@ classDiagram
     StrikeConfig *-- RuntimeConfig
     BboxTtcTracker --> TtcObservation : creates
     TtcDescentPlanner --> TrajectoryCommand : creates
-    StrikeGuidance *-- TtcDescentPlanner
+    StrikeGuidance *-- VerticalTargetPlanner
+    StrikeGuidance *-- VerticalSpeedController
+    VerticalTargetPlanner *-- TtcDescentPlanner
+    VisualGuidanceEstimator *-- BboxTtcTracker
     StrikeSimulation *-- Barometer
-    StrikeSimulation *-- BboxTtcTracker
+    StrikeSimulation *-- VisualGuidanceEstimator
     StrikeSimulation *-- StrikeGuidance
     StrikeSimulation *-- FlightLog
 ```
@@ -191,10 +181,10 @@ classDiagram
 | `RuntimeConfig` | Physical camera setup, mission targets, TTC tuning, limits, filters, and PID gains. |
 | `StrikeConfig` | Composes the two independent configuration groups. |
 | `Barometer` | Samples altitude and filters vertical velocity. |
-| `BboxTtcTracker` | Converts bbox scale growth into TTC and commit readiness. |
+| `BboxTtcTracker` | Converts bbox scale growth into TTC; its bbox-size flag remains legacy compatibility. |
 | `TtcObservation` | Typed visual measurement: box, scale, growth, and TTC. |
 | `TtcDescentPlanner` | Uses TTC as time-to-go for the known impact altitude. |
-| `StrikeGuidance` | Selects takeoff, track, commit, or abort and emits high-level commands. |
+| `StrikeGuidance` | Owns acquisition/tracking/recovery/commit deadlines and emits bounded collective/RPY targets. |
 | `StrikeSimulation` | Connects sensing, guidance, motor helpers, rendering, and contact. |
 
 ## TTC and altitude math
@@ -216,13 +206,12 @@ divides by growth and therefore explodes when growth is close to zero. Raw and
 filtered TTC remain in the CSV for offline analysis; raw TTC is blank when raw
 growth is zero or negative.
 
-No target size or camera calibration is required. During tracking the planner
-uses barometer altitude `h` and known impact altitude `h*`:
-
-`v_z* = clamp((h* - h) / max(TTC, min_TTC), -max_descent, max_climb)`.
-
-Before a valid TTC exists, the drone keeps nominal forward velocity and holds
-altitude while moving forward to create measurable bbox growth.
+TTC scale ratios do not require metric target size. Bearing guidance does need
+camera intrinsics, mounting and matched attitude. The TTC candidate is
+`clamp((target_altitude-altitude)/max(TTC,0.2),-5.5,3)`; its descent is guarded
+by the current DY PD reference, blended, then braked and slew-limited.
+Unreliable TTC returns to DY descent; unreliable bearing enters recovery.
+See [the full control law](trajectory_algo.md) for confidence gates and PI tuning.
 
 ## Configuration reference
 
@@ -244,16 +233,16 @@ against a real vehicle.
 | `imu.accelerometer_noise_sigma_mps2` | `0.0075` | ICM-42688-P-inspired vertical acceleration noise. |
 | `vertical_estimator.alpha/beta` | `0.08 / 0.005` | Barometer correction gains for fused height and vertical speed. |
 | `impact_altitude_m` | `1.0` | Desired altitude at contact. |
-| `forward_speed_mps` | `13.0` | Nominal body-forward command. |
-| `nominal_pitch_deg` | `20.0` | Initial forward pitch while altitude is held. |
-| `max_descent_velocity_mps` | `4.5` | Downward velocity limit used after TTC becomes valid. |
+| `guidance.approach_pitch_deg` | `7.0` | Bounded approach pitch; no forward-speed estimate. |
+| `nominal_pitch_deg` | `20.0` | Legacy compatibility; inactive in guidance. |
+| `max_descent_velocity_mps` | `5.5` | Downward velocity limit used after TTC becomes valid. |
 | `max_climb_velocity_mps` | `3.0` | Upward velocity limit. |
-| `camera_fov_deg` | `90.0` | Rendering FOV only; not a TTC range scale. |
-| `commit_box_height_fraction` | `0.1` | Image-height threshold that arms commit. |
+| `camera_fov_deg` | `90.0` | Horizontal FOV used for rendering and bearing calibration. |
+| `commit_box_height_fraction` | `0.1` | Legacy bbox-size flag; does not arm guidance commit. |
 | `ttc.alpha` | `0.85` | Trust in each measured bbox scale. |
-| `ttc.beta` | `0.05` | Trust in the scale-rate correction. |
+| `ttc.beta` | `0.20` | Trust in the scale-rate correction. |
 | `min_growth_px_per_s` | `0.01` | Rejects zero/negative approach growth. |
-| `commit_timeout_margin_s` | `5.0` | Extra time after the last TTC during commit. |
+| `commit_timeout_margin_s` | `5.0` | Legacy compatibility; guidance uses a strict 0.3 s maximum. |
 | `post_impact_seconds` | `3.0` | Passive physics/video time after contact; telemetry freezes at contact. |
 
 `pitch_attitude_pid_gains` is tuned for this strike example as
@@ -261,8 +250,9 @@ against a real vehicle.
 by the other examples. Collective thrust uses measured pitch so attitude lag
 does not silently remove vertical lift.
 
-`forward_speed_pid_gains` controls the pitch response that tracks the forward
-velocity target; `max_pitch_deg` limits the requested tilt.
+`forward_speed_pid_gains` is inactive compatibility tuning. `max_pitch_deg`
+limits the bounded approach request. Roll/pitch tilt compensation and shared PI
+retain vertical lift while attitude targets change.
 
 During takeoff, the default altitude PID uses `(1.8, 0.05, 2.2)` for faster
 launch and braking. When measured climb speed reaches
@@ -330,32 +320,23 @@ coefficients, propeller diameter, and rotor inertia. A scenario may override
 those values in `simulation.physical_forces` for a controlled experiment, but
 the profile is the normal place to change them when the real vehicle changes.
 
-## TTC-to-drone-step flow
+## Image-to-drone-step flow
 
 ```mermaid
 flowchart TD
-    camera[forward_rgb: RGB frame] --> detect[detect_red_box: bbox or lost]
-    detect --> ttc[BboxTtcTracker.update]
-    ttc --> observation[TtcObservation: scale, growth, TTC]
-    observation --> planner[TtcDescentPlanner.command]
-    physics[PyBullet state] --> barometer[Barometer: altitude, vz]
-    barometer --> planner
-    planner --> guidance[StrikeGuidance.update]
-    observation --> guidance
-    guidance --> command[GuidanceCommand: pitch, collective thrust]
-    command --> attitude[AttitudeController.update]
-    command --> pwm[pwm_from_thrust]
-    attitude --> step[PhysicsEngine.step]
-    pwm --> step
-    step --> physics
+    camera[Unique RGB capture + matching IMU attitude] --> vision[Calibrated bearing and gated TTC]
+    vertical[Barometer + vertical IMU fusion] --> guidance[Guidance states and vertical planner]
+    vision --> guidance
+    guidance --> pi[Shared vertical-speed PI + tilt compensation]
+    guidance --> attitude[RPY targets and attitude PIDs]
+    pi --> mixer[Motor allocation and physics]
+    attitude --> mixer
+    mixer --> vertical
 ```
 
-`commit` holds the last valid pitch and corrected descent-rate target until
-contact or its TTC deadline. The barometer-driven vertical PID still updates
-collective thrust, so a fixed command cannot turn a terminal descent into a
-climb. After contact, thrust and torque are set to zero for the configured
-aftermath window. The wide PyBullet camera is only a scene view; the controller
-uses the body-fixed forward camera.
+Strict blind commit preserves one accepted command for at most 0.3 s;
+otherwise camera loss enters bounded recovery. After contact, thrust and torque
+are zero for the aftermath window. Python owns physics and control in both renderers.
 
 ## Low-level control and physics loop
 
@@ -419,8 +400,8 @@ sequenceDiagram
     participant S as Sensors
 
     Note over G,S: Control tick at 120 Hz
-    S->>G: barometer, bbox/TTC, forward velocity
-    G->>A: pitch target
+    S->>G: fused vertical state, timestamped visual estimate, IMU attitude
+    G->>A: roll/pitch/initial-yaw targets and dt
     S->>A: IMU attitude and angular rate
     A->>E: body torque request
     G->>E: collective thrust converted to one PWM command
@@ -442,7 +423,7 @@ sequenceDiagram
 
 | Layer | Code | Input | Output | Responsibility |
 | --- | --- | --- | --- | --- |
-| Guidance | `StrikeGuidance.update()` | TTC, barometer, forward speed | `GuidanceCommand` | Select phase, collective thrust, and desired pitch. |
+| Guidance | `StrikeGuidance.update()` | Fresh visual estimate, fused vertical state, IMU attitude, time | `GuidanceCommand` | Select phase, collective thrust, and bounded RPY targets. |
 | Attitude loop | `AttitudeController.update()` | desired pitch, IMU attitude/rates | `(roll, pitch, yaw)` torque in N m | Correct the difference between desired and measured attitude. |
 | Command adapter | `StrikeSimulation.run()` | collective thrust and torque | one PWM value plus torque | Divides collective force by four and keeps control/physics clocks coordinated. |
 | Mixer and motors | `PhysicsEngine.step()` | PWM and torque | four actual RPM values | Mixes torque corrections, limits motors, and models motor lag. |
@@ -469,31 +450,7 @@ the requested command.
 
 ## `StrikeGuidance.update()` phase flow
 
-```mermaid
-flowchart TD
-    start[barometer + bbox/TTC + visibility] --> phase{phase}
-    phase -->|takeoff| takeoff[Altitude PID]
-    takeoff --> ready{height and vz stable?}
-    ready -->|no| takeoff_out[level command]
-    ready -->|yes| reset[reset TTC history]
-    reset --> track
-    phase -->|track| visible{target visible?}
-    visible -->|yes| ttc{valid TTC?}
-    ttc -->|yes| planner[TTC + altitude planner]
-    ttc -->|no| hold_alt[forward motion, hold altitude]
-    planner --> track[fixed pitch + vertical velocity PID]
-    hold_alt --> track
-    visible -->|no| armed{commit armed?}
-    armed -->|no| abort[abort and hold altitude]
-    armed -->|yes| commit[freeze pitch and descent target]
-    phase -->|commit| commit
-    phase -->|abort| abort
-    commit --> commit_vz[barometer vertical PID\nupdate collective thrust]
-    commit_vz --> deadline{deadline passed?}
-    deadline -->|yes| expired[report timeout]
-    deadline -->|no| commit
-    abort --> abort_command[zero pitch + vertical damping]
-    track --> track_command[GuidanceCommand]
-    takeoff_out --> takeoff_command[GuidanceCommand]
-    expired --> commit_command[GuidanceCommand with commit expired]
-```
+TAKEOFF -> ACQUIRE -> TRACK (DY / BLEND / TTC), with bounded RECOVER,
+strict COMMIT and terminal ABORT. TTC loss returns to DY; bearing loss requires
+recovery. See [the state and sequence diagrams](trajectory_algo.md) and
+[the design/tuning/validation record](planes/dy-bearing-smooth-descent.md).

@@ -15,9 +15,11 @@ def detect_red_box(rgb: np.ndarray) -> tuple[np.ndarray, tuple[int, int, int, in
     if not contours:
         return bgr, None
     contour = max(contours, key=cv2.contourArea)
-    if cv2.contourArea(contour) < 20:
+    if cv2.contourArea(contour) < 4:
         return bgr, None
     x, y, width, height = cv2.boundingRect(contour)
+    if width < 3 or height < 3:
+        return bgr, None
     cv2.rectangle(bgr, (x, y), (x + width, y + height), (0, 255, 255), 2)
     cv2.putText(bgr, f"red target: {width} x {height} px", (x, max(24, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
     return bgr, (x, y, width, height)

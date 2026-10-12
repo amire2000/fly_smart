@@ -49,29 +49,32 @@ runtime:
     max_pitch_deg: 20.0
     takeoff_altitude_tolerance_m: 0.2
     takeoff_velocity_tolerance_mps: 0.5
-    commit_timeout_margin_s: 5.0
+    commit_timeout_margin_s: 5.0 # Legacy compatibility setting; inactive.
   ttc:
     commit_box_height_fraction: 0.1
     alpha: 0.85                         # Trust in each measured bbox scale.
-    beta: 0.05                          # Trust in the bbox-scale-rate correction.
-    ttc_unavailable_descent_velocity_mps: 1.5  # Start descent before TTC is reliable.
-    ttc_unavailable_descent_slope_m_per_m: 0.50 # Pre-TTC vertical drop per metre of forward travel.
-    ttc_unavailable_pitch_boost_deg: 5.0  # Temporarily command up to 25 deg while bbox growth is invalid.
+    beta: 0.20                          # Trust in the bbox-scale-rate correction.
+    ttc_unavailable_descent_velocity_mps: 1.5  # Legacy compatibility setting; inactive.
+    ttc_unavailable_descent_slope_m_per_m: 0.50 # Legacy compatibility setting; inactive.
+    ttc_unavailable_pitch_boost_deg: 5.0  # Legacy compatibility setting; inactive.
     ttc_activation_s: 8.0                # Trust TTC for final descent only when it is short.
     camera_dy_gain_mps_per_deg: 0.20     # Vertical-speed correction per compensated camera degree.
     camera_dy_deadband_deg: 1.0          # Ignore small compensated vertical alignment errors.
     camera_dy_max_correction_mps: 2.0    # Maximum camera correction magnitude.
   pid:
     altitude:
-      gains: [0.7, 0.05, 1.1]           # [kp, ki, kd]: altitude error to collective thrust.
-      integral_limit: 0.5
+      gains: [1.8, 0.4, 2.2]           # [kp, ki, kd]: altitude error to collective thrust.
+      integral_limit: 10.0
     forward_speed:
       gains: [0.03, 0.0, 0.002]         # [kp, ki, kd]: forward-speed error to pitch target.
       integral_limit: 0.2
     pitch_attitude:
       gains: [0.008, 0.0, 0.006]        # [kp, ki, kd]: pitch error to motor torque.
     vertical_velocity:
-      gains: [1.3, 0.0, 0.0]            # [kp, ki, kd]: descent-rate error to collective thrust.
+      gains: [1.3, 0.4, 0.0]            # [kp, ki, kd]: descent-rate error to collective thrust.
   vertical_control:
     vertical_position_correction: 2.0    # Hold descent demand when TTC grows near the target.
     max_vertical_position_correction_mps: 2.0  # Bound the correction contribution.
+  guidance:
+    approach_pitch_deg: 5.0                # Retain the separately tested heavier-profile approach.
+    vertical_velocity_integral_limit: 10.0  # More force authority for the 1.5 kg profile.

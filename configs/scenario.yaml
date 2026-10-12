@@ -46,20 +46,28 @@ runtime:
   mission:
     takeoff_altitude_m: 15.0     # Height where visual tracking begins.
     impact_altitude_m: 1.0       # Desired altitude at contact.
-    forward_speed_mps: 13.0      # Desired forward velocity.
-    nominal_pitch_deg: 20.0      # Initial forward pitch request.
+    forward_speed_mps: 13.0      # Legacy compatibility setting; inactive in bearing guidance.
+    nominal_pitch_deg: 20.0      # Legacy compatibility setting; use guidance.approach_pitch_deg.
   ttc:
     commit_box_height_fraction: 0.1  # Bbox height fraction that arms commit.
-    ttc_unavailable_descent_slope_m_per_m: 0.50 # Pre-TTC vertical drop per metre of forward travel.
-    ttc_unavailable_pitch_boost_deg: 5.0  # Keep a steady slant while target lock has no valid TTC.
     ttc_activation_s: 8.0           # Trust TTC for final descent only when it is short.
     camera_dy_gain_mps_per_deg: 0.20 # Vertical-speed correction per compensated camera degree.
     camera_dy_deadband_deg: 1.0      # Ignore small compensated vertical alignment errors.
     camera_dy_max_correction_mps: 2.0 # Bound camera correction before altitude safety limits.
     alpha: 0.85                       # Trust in each measured bbox scale.
-    beta: 0.05                        # Trust in the bbox-scale-rate correction.
+    beta: 0.20                        # Trust in the bbox-scale-rate correction.
   vertical_estimator:
     alpha: 0.08
     beta: 0.005
   vertical_control:
     max_vertical_position_correction_mps: 2.0
+  guidance:
+    approach_pitch_deg: 7.0       # Moderate forward-speed increase; pitch request, not speed feedback.
+    camera_dy_rate_gain: 0.02
+    ttc_dwell_s: 0.3
+    ttc_blend_s: 0.5
+    vertical_slew_mps2: 1.0
+    braking_delay_s: 0.2
+  pid:
+    vertical_velocity:
+      gains: [1.0, 0.4, 0.0]

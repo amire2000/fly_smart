@@ -23,3 +23,15 @@ scroll to zoom. These controls affect only the spectator view, not FPV output.
 
 The interactive Python task starts paused. Use the **▶** and **↻** buttons in
 Godot's lower-left toolbar to start or reset both Python and Godot poses.
+
+The FPV camera now follows runtime width, height, horizontal FOV and mounting
+angle sent by Python. Each shared-memory frame carries the rendered pose ID;
+Python matches its capture-time IMU attitude and rejects repeated poses or
+stale frames. Resize replaces the shared file atomically. V-sync is disabled
+so remote-display refresh cannot starve the 0.1 s camera freshness gate; the
+renderer caps itself at at least 60 FPS. The controller remains in Python.
+
+The Reset popup includes **Takeoff: 20/30/50 m** beside target distance. The
+configured starting height remains available too. Confirm Reset, then Start:
+Python climbs from the launch pose to that altitude before visual acquisition.
+This selects the mission takeoff altitude, not the red target's height.

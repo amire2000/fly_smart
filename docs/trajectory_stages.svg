@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1180" viewBox="0 0 1200 1180" role="img" aria-labelledby="title description">
+  <title id="title">Implemented slant trajectory: bearing guidance with confidence-gated TTC</title>
+  <desc id="description">Revised implemented side-view schematic of a 50 to 100 metre approach. After takeoff the drone moves forward and descends smoothly using fresh attitude-compensated vertical bearing, even if TTC is unreliable. Fresh confident TTC at most eight seconds sustained for 0.3 seconds permits a smooth blend toward TTC descent timing. Lateral bearing remains active. A second profile shows TTC loss returning smoothly to bearing-driven descent, rather than altitude hold. Only loss of usable bearing triggers held-command grace, recovery and abort. Timing and intermediate heights are schematic, not measured flight data.</desc>
+  <defs>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; fill: #172b40; }
+      .title { font-size: 30px; font-weight: 700; }
+      .heading { font-size: 23px; font-weight: 700; }
+      .label { font-size: 18px; }
+      .small { font-size: 16px; fill: #46586c; }
+      .stage { font-size: 18px; font-weight: 700; }
+      .number { font-size: 17px; font-weight: 700; fill: #ffffff; text-anchor: middle; dominant-baseline: central; }
+      .axis { stroke: #8392a3; stroke-width: 1.5; }
+      .grid { stroke: #e0e7ee; stroke-width: 1; }
+      .leader { stroke: #8392a3; stroke-width: 1.5; fill: none; }
+      .path { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8392a3"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="1180" fill="#ffffff"/>
+  <text x="42" y="51" class="title">Slant trajectory — implemented control stages</text>
+  <text x="42" y="82" class="label">Camera + IMU + barometer · 50–100 m starting distance · known target-centre altitude</text>
+  <text x="42" y="109" class="small">Schematic only: stage positions and intermediate heights are illustrative, not simulated results.</text>
+
+  <text x="42" y="154" class="heading">A. Smooth bearing descent first; TTC refines the timing</text>
+  <text x="64" y="193" class="small">Altitude</text>
+  <path d="M 100 200 V 449 H 1140" class="axis" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 100 220 H 1128 M 100 425 H 1128" class="grid"/>
+  <text x="46" y="226" class="label">15 m</text>
+  <text x="58" y="431" class="label">1 m</text>
+  <text x="523" y="483" class="small">Forward travel → target initially 50–100 m away</text>
+  <text x="108" y="470" class="small">Takeoff complete</text>
+
+  <path d="M 116 220 C 220 220 330 253 435 270" class="path" stroke="#1469b8"/>
+  <path d="M 435 270 C 515 283 560 292 626 305 S 830 375 999 409" class="path" stroke="#147c59"/>
+  <path d="M 999 409 C 1025 421 1045 425 1060 425 H 1098" class="path" stroke="#7854ad"/>
+  <path d="M 116 220 V 442" class="leader" stroke-dasharray="4 5"/>
+  <path d="M 435 270 V 442" class="leader" stroke-dasharray="4 5"/>
+  <rect x="1098" y="406" width="38" height="38" rx="2" fill="#c6283d"/>
+  <circle cx="1117" cy="425" r="5" fill="#ffffff"/>
+  <path d="M 1098 425 H 1117" class="path" stroke="#7854ad"/>
+  <text x="1136" y="382" class="small" text-anchor="end">Target centre</text>
+
+  <circle cx="116" cy="220" r="16" fill="#1469b8"/><text x="116" y="220" class="number">1</text>
+  <circle cx="435" cy="270" r="16" fill="#1469b8"/><text x="435" y="270" class="number">2</text>
+  <circle cx="736" cy="341" r="16" fill="#147c59"/><text x="736" y="341" class="number">3</text>
+  <circle cx="999" cy="409" r="16" fill="#7854ad"/><text x="999" y="409" class="number">4</text>
+  <text x="173" y="200" class="stage">DY bearing PD descent</text>
+  <text x="455" y="193" class="stage">Guarded TTC blend begins</text>
+  <text x="455" y="215" class="small">Trusted TTC ≤ 8 s for 0.3 s</text>
+  <path d="M 471 223 L 447 253" class="leader"/>
+  <text x="750" y="287" class="stage">Controlled slant</text>
+  <path d="M 771 297 L 750 322" class="leader"/>
+  <text x="890" y="354" class="stage">Terminal approach</text>
+  <path d="M 987 362 L 997 389" class="leader"/>
+
+  <text x="42" y="526" class="stage">1 · BEARING DESCENT</text>
+  <text x="42" y="553" class="label">No trusted TTC yet:</text>
+  <text x="42" y="578" class="label">move forward; DY sets descent.</text>
+  <text x="42" y="609" class="small">7° pitch; filtered DY and its rate.</text>
+  <text x="42" y="633" class="small">Only fresh reliable bearing is used.</text>
+
+  <text x="340" y="526" class="stage">2 · CONFIDENCE GATE</text>
+  <text x="340" y="553" class="label">Fresh, growing, consistent</text>
+  <text x="340" y="578" class="label">detections enable TTC refinement.</text>
+  <text x="340" y="609" class="small">Reject stale frames and poor fits.</text>
+  <text x="340" y="633" class="small">No TTC → bearing keeps descent.</text>
+
+  <text x="638" y="526" class="stage">3 · DESCEND</text>
+  <text x="638" y="553" class="label">Blend DY and trusted TTC:</text>
+  <text x="638" y="578" class="label">TTC never eases below DY.</text>
+  <text x="638" y="609" class="small">Slew-limit speed; check feasibility.</text>
+  <text x="638" y="633" class="small">Shared speed PI controls thrust.</text>
+
+  <text x="945" y="526" class="stage">4 · TERMINAL</text>
+  <text x="945" y="553" class="label">Brake descent; ease to level.</text>
+  <text x="945" y="578" class="label">Hold altitude; keep approach.</text>
+  <text x="945" y="609" class="small">Blind continuation ≤ 0.3 s,</text>
+  <text x="945" y="633" class="small">only if strict terminal gates pass.</text>
+
+  <path d="M 42 672 H 1158" class="grid"/>
+  <text x="42" y="711" class="heading">B. TTC unreliable, but bearing still reliable → keep descending</text>
+  <text x="42" y="740" class="small">Return smoothly to current DY guidance. Losing TTC alone does not pause descent.</text>
+
+  <path d="M 100 772 V 1025 H 1140" class="axis" fill="none" marker-end="url(#arrow)"/>
+  <text x="43" y="804" class="small">Higher</text>
+  <text x="43" y="1017" class="small">Lower</text>
+  <path d="M 120 781 L 285 834" class="path" stroke="#147c59"/>
+  <path d="M 285 834 Q 322 848 360 855" class="path" stroke="#ad5e13"/>
+  <path d="M 360 855 C 470 874 570 892 696 905" class="path" stroke="#ad5e13"/>
+  <path d="M 696 905 C 746 910 759 922 811 943 S 1004 993 1098 1006" class="path" stroke="#147c59"/>
+  <rect x="1098" y="987" width="38" height="38" rx="2" fill="#c6283d"/>
+  <circle cx="1117" cy="1006" r="5" fill="#ffffff"/>
+  <path d="M 1098 1006 H 1117" class="path" stroke="#147c59"/>
+
+  <circle cx="285" cy="834" r="7" fill="#ad5e13"/>
+  <circle cx="360" cy="855" r="7" fill="#ad5e13"/>
+  <circle cx="696" cy="905" r="7" fill="#147c59"/>
+  <text x="167" y="789" class="stage">TTC confidence lost</text>
+  <path d="M 258 797 L 281 823" class="leader"/>
+  <text x="149" y="890" class="small">Slew-limited handoff</text>
+  <path d="M 293 884 L 322 853" class="leader"/>
+  <text x="411" y="809" class="stage">DY takes over smoothly</text>
+  <text x="411" y="833" class="small">Fresh bearing controls descent</text>
+  <text x="715" y="791" class="stage">Confidence restored</text>
+  <text x="715" y="815" class="small">Stable for 0.3 s → blend TTC back in</text>
+  <path d="M 728 822 L 704 897" class="leader"/>
+  <text x="814" y="886" class="small">Refine using current height + TTC</text>
+
+  <path d="M 534 885 V 935" class="leader" stroke-dasharray="4 5" marker-end="url(#arrow)"/>
+  <text x="376" y="961" class="stage">If bearing also fails → recovery</text>
+  <text x="376" y="985" class="small">0.2 s grace; no bearing recovery within 1 s → abort.</text>
+  <text x="523" y="1057" class="small">Forward travel → timing intervals are not drawn to scale</text>
+
+  <path d="M 42 1090 H 1158" class="grid"/>
+  <text x="42" y="1119" class="label">Lateral alignment is active throughout visible-target flight; it is not shown in this side view.</text>
+  <text x="42" y="1146" class="small">Simulation implementation. Motion lags commands; reduced pitch does not guarantee a stop.</text>
+  <text x="42" y="1170" class="small">DY descent needs usable positive-down bearing. TTC confidence controls refinement, not permission for all descent.</text>
+</svg>

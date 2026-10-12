@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 import json
 import mmap
+import os
 from pathlib import Path
 import socket
 import struct
@@ -32,6 +34,11 @@ class GodotBridge:
         self._control_socket.setblocking(False)
         self._file = None
         self._mapping = None
+        self._pose_id = 0
+        self._poses = OrderedDict()
+        self._last_sequence = None
+        self._last_pose_id = None
+        self.frame_metadata = None
 
     def open(self) -> None:
         """Open the shared-memory-backed file created by Godot."""
@@ -40,33 +47,59 @@ class GodotBridge:
         self._file = self.path.open("rb")
         self._mapping = mmap.mmap(self._file.fileno(), 0, access=mmap.ACCESS_READ)
 
-    def publish_pose(self, drone_position, drone_orientation, target_position, target_orientation, reset: bool = False, overlay: dict | None = None, target_control: dict | None = None) -> None:
+    def publish_pose(self, drone_position, drone_orientation, target_position, target_orientation, reset: bool = False, overlay: dict | None = None, target_control: dict | None = None, captured_at_s: float | None = None, attitude_rad: tuple[float, float, float] | None = None, camera: dict | None = None) -> None:
         """Send the latest PyBullet poses; Godot drains old packets each frame."""
         payload = {
             "drone": {"p": list(drone_position), "q": list(drone_orientation)},
             "target": {"p": list(target_position), "q": list(target_orientation)},
         }
+        if captured_at_s is not None and attitude_rad is not None:
+            self._pose_id = (self._pose_id + 1) % (2**32) or 1
+            payload["pose_id"] = self._pose_id
+            self._poses[self._pose_id] = (captured_at_s, attitude_rad)
+            while len(self._poses) > 256:
+                self._poses.popitem(last=False)
+        if camera is not None:
+            payload["camera"] = camera
         if reset:
+            self._poses.clear()
+            self._last_sequence = None
+            self._last_pose_id = None
+            self.frame_metadata = None
             payload["reset"] = True
         if overlay is not None:
             payload["overlay"] = overlay
         if target_control is not None:
             payload["target_control"] = target_control
-        self._socket.sendto(json.dumps(payload, separators=(",", ":")).encode("utf-8"), self.destination)
+        self._socket.sendto(json.dumps(payload, separators=(",", ":"), allow_nan=False).encode("utf-8"), self.destination)
 
     def read_frame(self) -> np.ndarray | None:
         """Return one RGB frame, or ``None`` while Godot is writing a frame."""
         if self._mapping is None:
             return None
-        magic, width, height, channels, slot, sequence, frame_bytes, _ = HEADER.unpack_from(self._mapping)
+        if self._file and self.path.stat().st_ino != os.fstat(self._file.fileno()).st_ino:
+            self._mapping.close()
+            self._file.close()
+            self.open()
+            self._last_sequence = None
+        if len(self._mapping) < HEADER_BYTES:
+            return None
+        header = HEADER.unpack_from(self._mapping)
+        magic, width, height, channels, slot, sequence, frame_bytes, pose_id = header
         if magic != b"GFPV" or channels != 3 or slot > 1 or sequence == 0 or sequence & 1:
             return None
         if frame_bytes != width * height * channels or len(self._mapping) < HEADER_BYTES + 2 * frame_bytes:
             return None
+        if sequence == self._last_sequence or pose_id == self._last_pose_id or pose_id not in self._poses:
+            return None
         start = HEADER_BYTES + slot * frame_bytes
         data = self._mapping[start : start + frame_bytes]
-        if struct.unpack_from("<I", self._mapping, 20)[0] != sequence:
+        if HEADER.unpack_from(self._mapping) != header:
             return None
+        self._last_sequence = sequence
+        self._last_pose_id = pose_id
+        time_s, attitude = self._poses[pose_id]
+        self.frame_metadata = (time_s, sequence, attitude)
         return np.frombuffer(data, dtype=np.uint8).reshape(height, width, channels).copy()
 
     def read_collision_event(self) -> str | None:
@@ -109,6 +142,8 @@ class GodotBridge:
                 event = {"action": value["action"]}
                 if "target_distance_m" in value:
                     event["target_distance_m"] = value["target_distance_m"]
+                if "takeoff_altitude_m" in value:
+                    event["takeoff_altitude_m"] = value["takeoff_altitude_m"]
 
     def clear_control_events(self) -> None:
         """Discard stale UI commands before an interactive attempt starts."""

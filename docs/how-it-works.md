@@ -1,5 +1,10 @@
 # How Fly Smart turns a bounding box into flight commands
 
+The current DY-first controller, confidence gates and PD/PI state machine are
+explained in [Trajectory algorithm](trajectory_algo.md). The controller
+walkthrough below records the earlier implementation for historical comparison.
+
+
 Fly Smart is a diagonal-strike flight stack. It does not need the target's
 world position, physical size, image centre, focal length, or a range sensor.
 It uses the apparent growth of a detected target to estimate **time to

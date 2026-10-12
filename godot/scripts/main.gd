@@ -2,22 +2,24 @@ extends Node3D
 
 # Linux shared-memory-backed file. Godot writes; Python maps and reads it.
 const SHM_PATH := "/dev/shm/fly_smart_fpv.rgb"
-const WIDTH := 640
-const HEIGHT := 360
-const FPS := 15.0
+var WIDTH := 640
+var HEIGHT := 480
+var FPS := 30.0
 const HEADER_BYTES := 32
-const FRAME_BYTES := WIDTH * HEIGHT * 3  # tightly packed RGB8
+var FRAME_BYTES := WIDTH * HEIGHT * 3  # tightly packed RGB8
 const POSE_PORT := 9100
 const COLLISION_PORT := 9101
 const CONTROL_PORT := 9102
-const FPV_MOUNT := Transform3D(Basis(Vector3.UP, -PI / 2.0), Vector3(0.35, 0.05, 0.0))
+const FPV_MOUNT := Transform3D(Basis(Vector3.UP, -PI / 2.0), Vector3(0.18, 0.03, 0.0))
 const SPECTATOR_TURN_SPEED := 0.01
-const TARGET_DISTANCE_PRESETS_M := [30, 40, 50, 60, 70, 80]
+const TARGET_DISTANCE_PRESETS_M := [30, 40, 50, 60, 70, 80, 150]
+const TAKEOFF_ALTITUDE_PRESETS_M := [20, 30, 50]
 
 var _drone: Node3D
 var _target: Node3D
 var _fpv_viewport: SubViewport
 var _fpv_camera: Camera3D
+var _fpv_preview: TextureRect
 var _display_camera: Camera3D
 var _collision_sensor: Area3D
 var _shm: FileAccess
@@ -28,10 +30,13 @@ var _bbox_panel: Panel
 var _telemetry_label: Label
 var _rtf_label: Label
 var _target_distance: OptionButton
+var _takeoff_altitude: OptionButton
 var _reset_popup: PopupPanel
 var _active_slot := 0
 var _sequence := 0
 var _latest_pose: Dictionary = {}
+var _render_pose_id := 0
+var _look_down_rad := 0.0
 var _collision_reported := false
 var _spectator_yaw := -PI / 2.0
 var _spectator_pitch := 0.35
@@ -39,6 +44,7 @@ var _spectator_distance := 8.0
 
 
 func _ready() -> void:
+	Engine.max_fps = 60
 	_build_world()
 	_build_drone()
 	_build_target()
@@ -58,7 +64,9 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	_receive_latest_pose()
-	var camera_transform := _drone.global_transform * FPV_MOUNT
+	var mount := FPV_MOUNT * Transform3D(Basis(Vector3.RIGHT, -_look_down_rad), Vector3.ZERO)
+	var camera_transform := _drone.global_transform * mount
+	_render_pose_id = int(_latest_pose.get("pose_id", 0))
 	_fpv_camera.global_transform = camera_transform
 	_update_spectator_camera()
 
@@ -148,11 +156,13 @@ func _receive_latest_pose() -> void:
 		if not value is Dictionary:
 			continue
 		_latest_pose = value
+		_configure_camera(value.get("camera"))
 		if value.get("reset", false):
 			_collision_reported = false
 		_apply_pose(value.get("drone"), _drone)
 		_apply_pose(value.get("target"), _target)
 		_update_target_distance(value.get("target_control"))
+		_update_takeoff_altitude(value.get("target_control"))
 		_update_fpv_overlay(value.get("overlay", {}))
 
 
@@ -165,7 +175,7 @@ func _apply_pose(raw_pose: Variant, node: Node3D) -> void:
 		return
 	if position_b.size() != 3 or attitude_b.size() != 4:
 		return
-	# PyBullet: X right, Y forward, Z up; Godot: X right, -Z forward, Y up.
+	# Vehicle/PyBullet: +X forward, +Y left, +Z up; map +Z to Godot up.
 	var position_g := Vector3(float(position_b[0]), float(position_b[2]), -float(position_b[1]))
 	var rotation_g := Quaternion(
 		float(attitude_b[0]), float(attitude_b[2]),
@@ -190,7 +200,7 @@ func _build_cameras() -> void:
 	_fpv_camera = Camera3D.new()
 	_fpv_camera.name = "FPVCamera"
 	_fpv_camera.projection = Camera3D.PROJECTION_PERSPECTIVE
-	_fpv_camera.fov = 75.0  # vertical FOV when KEEP_HEIGHT is selected
+	_fpv_camera.fov = rad_to_deg(2.0 * atan(tan(deg_to_rad(90.0) / 2.0) * HEIGHT / WIDTH))
 	_fpv_camera.near = 0.05
 	_fpv_camera.far = 500.0
 	_fpv_viewport.add_child(_fpv_camera)
@@ -208,13 +218,14 @@ func _build_cameras() -> void:
 	preview_style.set_border_width_all(2)
 	preview_frame.add_theme_stylebox_override("panel", preview_style)
 	overlay.add_child(preview_frame)
-	var preview := TextureRect.new()
-	preview.name = "FPVPreview"
-	preview.position = Vector2(10, 10)
-	preview.size = Vector2(480, 270)
-	preview.texture = _fpv_viewport.get_texture()
-	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	overlay.add_child(preview)
+	_fpv_preview = TextureRect.new()
+	_fpv_preview.name = "FPVPreview"
+	_fpv_preview.position = Vector2(10, 10)
+	_fpv_preview.size = Vector2(480, 270)
+	_fpv_preview.texture = _fpv_viewport.get_texture()
+	_fpv_preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_fpv_preview.stretch_mode = TextureRect.STRETCH_SCALE
+	overlay.add_child(_fpv_preview)
 	_bbox_panel = Panel.new()
 	_bbox_panel.name = "RedTargetBoundingBox"
 	_bbox_panel.visible = false
@@ -279,7 +290,7 @@ func _build_cameras() -> void:
 	reset_contents.add_theme_constant_override("separation", 8)
 	_reset_popup.add_child(reset_contents)
 	var reset_label := Label.new()
-	reset_label.text = "Reset target distance"
+	reset_label.text = "Reset flight settings"
 	reset_contents.add_child(reset_label)
 	_target_distance = OptionButton.new()
 	_target_distance.name = "TargetDistance"
@@ -288,6 +299,14 @@ func _build_cameras() -> void:
 	for distance in TARGET_DISTANCE_PRESETS_M:
 		_target_distance.add_item("Box: %d m" % distance, distance)
 	reset_contents.add_child(_target_distance)
+	_takeoff_altitude = OptionButton.new()
+	_takeoff_altitude.name = "TakeoffAltitude"
+	_takeoff_altitude.tooltip_text = "Takeoff and acquisition altitude applied on reset"
+	_takeoff_altitude.custom_minimum_size = Vector2(200, 34)
+	for altitude in TAKEOFF_ALTITUDE_PRESETS_M:
+		_takeoff_altitude.add_item("Takeoff: %d m" % altitude)
+		_takeoff_altitude.set_item_metadata(_takeoff_altitude.item_count - 1, float(altitude))
+	reset_contents.add_child(_takeoff_altitude)
 	var confirm := Button.new()
 	confirm.text = "Reset"
 	confirm.pressed.connect(_confirm_reset_pressed)
@@ -321,11 +340,13 @@ func _add_control_button(parent: Control, icon: String, tooltip: String, action:
 
 func _on_start_pressed() -> void:
 	_target_distance.disabled = true
+	_takeoff_altitude.disabled = true
 	_send_control("start")
 
 
 func _on_reset_pressed() -> void:
 	_target_distance.disabled = false
+	_takeoff_altitude.disabled = false
 	_reset_popup.popup_centered()
 
 
@@ -341,7 +362,22 @@ func _on_stop_pressed() -> void:
 
 func _send_control(action: String) -> void:
 	var distance := _target_distance.get_selected_id() if _target_distance != null else 30
-	_control_socket.put_packet(JSON.stringify({"event": "simulation_control", "action": action, "target_distance_m": distance}).to_utf8_buffer())
+	var altitude := float(_takeoff_altitude.get_selected_metadata()) if _takeoff_altitude != null else 20.0
+	_control_socket.put_packet(JSON.stringify({"event": "simulation_control", "action": action, "target_distance_m": distance, "takeoff_altitude_m": altitude}).to_utf8_buffer())
+
+
+func _update_takeoff_altitude(raw_control: Variant) -> void:
+	if not raw_control is Dictionary or _takeoff_altitude == null or not raw_control.has("takeoff_altitude_m"):
+		return
+	var altitude := float(raw_control["takeoff_altitude_m"])
+	for index in range(_takeoff_altitude.item_count):
+		if float(_takeoff_altitude.get_item_metadata(index)) == altitude:
+			_takeoff_altitude.select(index)
+			return
+	# Keep the configured initial altitude available without silently choosing 20 m.
+	_takeoff_altitude.add_item("Takeoff: %s m" % str(altitude))
+	_takeoff_altitude.set_item_metadata(_takeoff_altitude.item_count - 1, altitude)
+	_takeoff_altitude.select(_takeoff_altitude.item_count - 1)
 
 
 func _update_target_distance(raw_control: Variant) -> void:
@@ -361,8 +397,9 @@ func _update_fpv_overlay(raw_overlay: Variant) -> void:
 	var bbox: Variant = overlay.get("bbox")
 	if bbox is Array and bbox.size() == 4:
 		_bbox_panel.visible = true
-		_bbox_panel.position = Vector2(10 + float(bbox[0]) * 0.75, 10 + float(bbox[1]) * 0.75)
-		_bbox_panel.size = Vector2(float(bbox[2]) * 0.75, float(bbox[3]) * 0.75)
+		var scale := _fpv_preview.size / Vector2(WIDTH, HEIGHT)
+		_bbox_panel.position = _fpv_preview.position + Vector2(float(bbox[0]), float(bbox[1])) * scale
+		_bbox_panel.size = Vector2(float(bbox[2]), float(bbox[3])) * scale
 	else:
 		_bbox_panel.visible = false
 	_rtf_label.text = "RTF: %sx\nRUN: %s s" % [_format_rtf(overlay), _format_overlay_value(overlay.get("running_time_s"))]
@@ -427,12 +464,34 @@ func _on_drone_body_entered(body: Node3D) -> void:
 	_collision_reported = true
 
 
+func _configure_camera(raw: Variant) -> void:
+	if not raw is Dictionary:
+		return
+	var width := int(raw.get("width", WIDTH))
+	var height := int(raw.get("height", HEIGHT))
+	if width <= 0 or height <= 0:
+		return
+	if width != WIDTH or height != HEIGHT:
+		WIDTH = width
+		HEIGHT = height
+		FRAME_BYTES = WIDTH * HEIGHT * 3
+		_fpv_viewport.size = Vector2i(WIDTH, HEIGHT)
+		_open_shared_memory()
+	FPS = float(raw.get("hz", 30.0))
+	Engine.max_fps = maxi(60, int(FPS * 2.0))
+	_look_down_rad = deg_to_rad(float(raw.get("look_down_deg", 0.0)))
+	var hfov := deg_to_rad(float(raw.get("horizontal_fov_deg", 90.0)))
+	_fpv_camera.fov = rad_to_deg(2.0 * atan(tan(hfov / 2.0) * HEIGHT / WIDTH))
+
+
 func _open_shared_memory() -> void:
-	_shm = FileAccess.open(SHM_PATH, FileAccess.WRITE_READ)
+	if _shm != null:
+		_shm.close()
+	_shm = FileAccess.open(SHM_PATH + ".next", FileAccess.WRITE_READ)
 	if _shm == null:
 		push_error("Cannot open %s: %s" % [SHM_PATH, FileAccess.get_open_error()])
 		return
-	# Header: magic, width, height, channels, active_slot, sequence, frame_bytes, reserved.
+	# Header: magic, width, height, channels, active_slot, sequence, frame_bytes, rendered_pose_id.
 	_shm.big_endian = false
 	_shm.store_buffer("GFPV".to_ascii_buffer())
 	_shm.store_32(WIDTH)
@@ -445,6 +504,7 @@ func _open_shared_memory() -> void:
 	_shm.seek(HEADER_BYTES + 2 * FRAME_BYTES - 1)
 	_shm.store_8(0)
 	_shm.flush()
+	DirAccess.rename_absolute(SHM_PATH + ".next", SHM_PATH)
 
 
 func _capture_loop() -> void:
@@ -471,6 +531,9 @@ func _write_frame(pixels: PackedByteArray) -> void:
 	_shm.flush()
 	_shm.seek(16)
 	_shm.store_32(next_slot)
+	_shm.seek(28)
+	_shm.store_32(_render_pose_id)
+	_shm.seek(20)
 	_shm.store_32(_sequence + 2)
 	_shm.flush()
 	_active_slot = next_slot

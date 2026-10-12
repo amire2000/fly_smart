@@ -1,6 +1,7 @@
 # Fly Smart
 
-Standalone TTC diagonal-strike simulation extracted from the course.
+Sensor-only DY-bearing descent with gated TTC refinement, shared vertical PI,
+and a simulation-first control state machine. See [the trajectory design](docs/trajectory_algo.md).
 
 The `master` branch is the PyBullet-only baseline. It keeps the current
 course camera, physics, sensors, guidance, telemetry, and command-line entry

@@ -1,13 +1,176 @@
-# Slant trajectory algorithm: takeoff completion to red-box contact
+# Slant trajectory algorithm: DY-first control with gated TTC
+
+I want to understand which sensors and inputs influence the output, when they
+influence it, and why. This document is the control-design baseline from
+finishing takeoff to contacting the red box. The current implementation is
+sensor-only; the historical controller is retained below for comparison.
+
+Implementation commit: `pending`. Design and tuning decisions are recorded in
+[the implementation plan](planes/dy-bearing-smooth-descent.md). Validation
+results are recorded there; simulation success is not hardware qualification.
+
+## Sensors, outputs and ownership
+
+| Input | When it matters | Output and purpose |
+|---|---|---|
+| Unique timestamped RGB frame | Acquisition and tracking | Bbox centre supplies bearing; bbox expansion supplies TTC. Duplicate/stale frames never refresh confidence. |
+| Capture-time IMU attitude + mounting calibration | Every new image | Full roll/pitch/yaw compensation converts image `dx/dy` to world bearing; a pitched camera must not produce a fictitious descent error. |
+| Current IMU attitude/body rates | Every control tick | Attitude PIDs track roll/pitch/yaw; measured tilt compensates collective thrust. |
+| Barometer + vertical IMU | Fusion at sensor/physics rate, feedback at control rate | Estimated altitude sets the remaining descent budget; vertical speed supplies PI feedback and stopping-distance checks. |
+| Known target-centre altitude | Tracking, braking and terminal hold | Defines the finish altitude without target range, target size or coordinates. |
+| Time, confidence and actuator limits | Every control tick | Gate modes, bound references, prevent integrator windup and expire recovery/commit. |
+
+Simulation truth supplies synthetic sensors and scoring only. Guidance does not
+consume true forward velocity, target range or target position. Forward pitch
+is a bounded approach request, not closed-loop speed control.
+
+## Control law
+
+World-down elevation `alpha` is positive below the horizon; `beta` is target
+azimuth relative to initial yaw. Image-right corresponds to body -Y.
+
+```text
+f = width / (2*tan(horizontal_FOV/2))
+body_ray = camera_mount * [1, -(cx-width/2)/f, -(cy-height/2)/f]
+world_ray = IMU_rotation * body_ray
+alpha = atan2(-world_ray.z, hypot(world_ray.x, world_ray.y))
+beta = wrap(atan2(world_ray.y, world_ray.x) - initial_yaw)
+```
+
+Filter bearing and its rate on unique captures (time constant 0.15 s).
+
+```text
+DY = clamp(-0.20*max(alpha_deg-1,0) - 0.02*alpha_rate_deg_s, -2, 0)
+# DY is exactly zero inside the 1-degree deadband.
+TTC_candidate = clamp((target_altitude-altitude)/max(TTC,0.2), -5.5, 3)
+TTC_guarded = min(TTC_candidate, DY)
+requested_vz = (1-weight)*DY + weight*TTC_guarded
+```
+
+TTC changes descent timing after qualification. Its bearing guard prevents
+premature easing while the target is still below the aircraft. Above the target,
+the braking envelope limits descent; at or below target altitude +0.2 m, bounded altitude hold
+replaces the descent request. Apply shared speed bounds and 1 m/s² reference
+slew after planning. The PI remains active and retains its integral across modes.
+
+```text
+vertical_force = mass*gravity + PI(vz_reference - estimated_vz)
+collective = clamp(vertical_force / max(cos(roll)*cos(pitch),0.5), 0, actuator_max)
+```
+
+Vertical PI defaults `(1.0,0.4,0)`, integral limit 5; conditional integration
+freezes only when error would worsen collective saturation. Lateral bearing PD
+uses `(0.8,0,4.0)`, bounded +/-15 degrees with 15 deg/s slew. Hold initial yaw.
+Forward pitch is 7 degrees, slewed at 5 deg/s. See the [speed tuning record](planes/faster-horizontal-approach.md)
+for measured speeds and validation limits. The roll attitude PID defaults
+`(0.02,0,0.01)`; pitch retains `(0.008,0,0.006)`. Actual sample dt is passed.
+These are simulation defaults, not certified flight tuning.
+
+## State and confidence flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> TAKEOFF
+    TAKEOFF --> ACQUIRE: altitude and vertical speed settled
+    ACQUIRE --> DY: fresh bearing for 0.1 s
+    ACQUIRE --> ABORT: 5 s timeout
+    DY --> BLEND: qualified TTC <=8 s for 0.3 s
+    BLEND --> TTC: 0.5 s blend completed
+    BLEND --> DY: TTC confidence lost
+    TTC --> DY: TTC confidence lost or TTC >10 s
+    DY --> RECOVER: bearing lost or descent infeasible
+    BLEND --> RECOVER: bearing lost or descent infeasible
+    TTC --> RECOVER: bearing lost or descent infeasible
+    RECOVER --> DY: feasible and fresh bearing for 0.1 s
+    RECOVER --> ABORT: loss/recovery reaches 1 s
+    TTC --> COMMIT: target lost with strict terminal eligibility
+    COMMIT --> ABORT: capture-anchored deadline expired
+    note right of COMMIT: Any TRACK submode may qualify.
+TTC <=0.3 s and bearings within 2 degrees.
+No stale state; maximum 0.3 s.
+    note left of RECOVER: Hold only until 0.2 s after last usable capture,
+then slew toward altitude hold and zero pitch.
+```
+
+Bearing and TTC confidence are independent. Bearing needs a valid centre,
+association, calibration and capture age <=0.1 s. TTC additionally needs at
+least eight samples in a 0.5 s window spanning >=0.4 s, >1 px fitted growth,
+positive filtered growth, <=15% relative fit RMS, and an unclipped bbox.
+Confidence flags are eligibility checks, not probabilities. Growth-filter beta
+is 0.20; alpha is 0.85. A tracking discontinuity discards TTC history.
+
+## One control sequence
+
+```mermaid
+sequenceDiagram
+    participant Cam as Camera adapter
+    participant Vision as Visual estimator
+    participant Guide as Guidance state machine
+    participant Plan as Vertical planner
+    participant PI as Shared speed PI
+    participant Att as Attitude PIDs
+    participant Sim as Physics adapter
+    Cam->>Vision: Unique frame, capture time, matched IMU attitude
+    Vision->>Vision: Compensate/filter bearing; update growth/confidence
+    Vision-->>Guide: Bearing and independently gated TTC
+    Sim->>Guide: Current IMU + fused altitude/vertical speed + time
+    Guide->>Guide: Freshness, state, dwell, feasibility, deadlines
+    Guide->>Plan: DY, qualified TTC or hold request
+    Plan-->>Guide: Guarded/blended/braked/slewed vz reference
+    Guide->>PI: Reference, measured vz, measured tilt, dt
+    PI-->>Sim: Bounded collective thrust
+    Guide->>Att: Roll/pitch/initial-yaw targets + IMU + dt
+    Att-->>Sim: Body torques
+    Sim->>Sim: Motor allocation and physics
+    Sim-->>Guide: Next sensor sample
+    Note over Sim: Contact in any phase ends the attempt successfully;
+post-impact motors stop. Truth is used only for scoring.
+```
+
+## Validation
+
+62 tests and the component self-check pass. The 2026-10-11 default-vehicle simulation
+matrix passed 30/30 baseline and 210/210 separate disturbance cases at
+50/75/100 m, including current-code repeats for three audited edge cases.
+Scoring uses drone centre at first contact within the target's central half,
+not the physical contact point. See the [design and validation record](planes/dy-bearing-smooth-descent.md)
+for tuning, artifacts and qualification limits. The [150 m detection fix](planes/150m-target-detection-bbox.md)
+adds small-box bearing support and correct Godot overlay scaling; separate
+PyBullet and Godot 150 m baseline smokes pass, with no 150 m disturbance claim.
+
+## Feasibility and limits
+
+With height `h`, command acceleration `a=1` and reserve `delay=0.2`, limit
+requested downward speed to `sqrt((a*delay)^2+2*a*h)-a*delay`. Check measured
+stopping distance and minimum acceleration/cruise/braking duration against
+qualified TTC. An infeasible approach enters bounded recovery, not larger speed
+limits. Within the altitude corridor and stable vertical speed, a level finish
+is feasible without requiring another descent.
+
+This is a screening model: physical acceleration, estimation bias, unknown
+horizontal speed and camera loss can still prevent interception. See the
+[stage drawing](trajectory_stages.svg) and [input graph](trajectory_control_inputs.svg).
+
+---
+
+## Historical baseline: controller before DY-first implementation
 
 I want to understand which sensors and inputs influence the output, when they
 influence it, and why. This document traces the current implementation as a
 baseline for better control design: from finishing takeoff to contacting the
 red box, including who changes roll, pitch, yaw, and throttle.
 
-Reviewed on 2026-10-11. Equations describe the current working tree, using
+Reviewed on 2026-10-11. Equations describe the reviewed pre-change controller, using
 [`configs/scenario.yaml`](../configs/scenario.yaml) and inherited defaults.
-This is an explanation of existing behavior; it changes no flight algorithm.
+This historical section is retained for comparison; it does not describe the new controller.
+
+The subsequent [revised bearing-guidance proposal](planes/dy-bearing-smooth-descent.md)
+uses reliable vertical bearing DY to descend smoothly even without trustworthy
+TTC, then blends toward TTC timing when confidence permits. It is illustrated
+in [trajectory_stages.svg](trajectory_stages.svg) and the companion
+[bearing/TTC input graph](trajectory_control_inputs.svg). Those drawings show
+proposed behavior, not the current implementation documented below. TTC loss
+alone returns to DY descent; loss of usable bearing triggers recovery.
 
 ## 1. What produces the slant path?
 

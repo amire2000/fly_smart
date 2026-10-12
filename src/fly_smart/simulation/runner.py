@@ -18,17 +18,18 @@ from .godot_bridge import GodotBridge
 from ..trackers.red_target_detector import detect_red_box
 
 from .config import SceneConfig, StrikeConfig
-from ..camera_geometry import bbox_alignment_angles
+from ..visual_guidance import VisualGuidanceEstimator
 from ..guidance import FlightPhase, GuidanceCommand, GuidanceInput, StrikeGuidance
 from ..sensing import BarometerReading, VerticalEstimator
 from .sensors import Barometer, VerticalImu
 from .telemetry import FlightLog, build_summary, save_csv, save_plot, save_summary
 from .plot_process import latest_sample, send_plot_message, start_plot_process
-from ..ttc import BboxTtcTracker, TtcObservation
+from ..ttc import TtcObservation
 from .views import annotate, environment_rgb
 
 
-TARGET_DISTANCE_PRESETS_M = (30.0, 40.0, 50.0, 60.0, 70.0, 80.0)
+TARGET_DISTANCE_PRESETS_M = (30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 150.0)
+TAKEOFF_ALTITUDE_PRESETS_M = (20.0, 30.0, 50.0)
 
 
 def real_time_factor(simulated_seconds: float, wall_seconds: float) -> float:
@@ -79,8 +80,12 @@ class StrikeSimulation:
         physics_hz = settings.physics_hz
         time_step = settings.time_step_s
         control_steps = settings.control_steps
+        if config.camera_hz > physics_hz or physics_hz % config.camera_hz:
+            raise ValueError("camera_hz must divide the physics sample rate")
         active_scene = self.scene
         active_target_distance_m = self.scene.target_center[0] - config.launch_position[0]
+        pending_target_distance_m = active_target_distance_m
+        pending_takeoff_altitude_m = config.takeoff_altitude_m
         drone = create_world(model, settings)
         engine = PhysicsEngine(model, settings)
         p.resetBasePositionAndOrientation(drone, config.launch_position, (0, 0, 0, 1))
@@ -88,17 +93,17 @@ class StrikeSimulation:
         add_environment_buildings()
         if self.godot:
             self.godot.open()
-        barometer, tracker, guidance = Barometer(config), BboxTtcTracker(config), StrikeGuidance(config)
+        barometer, vision, guidance = Barometer(config), VisualGuidanceEstimator(config), StrikeGuidance(config, 4 * model.max_thrust_per_motor_n)
+        tracker = vision.tracker
         vertical_imu = VerticalImu(config)
         vertical_estimator = VerticalEstimator(config, config.launch_position[2])
         previous_vertical_velocity_mps = 0.0
-        attitude_controller = AttitudeController(config.pitch_attitude_pid_gains)
+        attitude_controller = AttitudeController(config.pitch_attitude_pid_gains, config.roll_attitude_pid_gains)
         torque = (0.0, 0.0, 0.0)
         command = GuidanceCommand(FlightPhase.TAKEOFF, config.hover_thrust_n, 0.0, None)
         baro = BarometerReading(config.launch_position[2], 0.0)
         observation: TtcObservation | None = None
         target_visible = False
-        vertical_alignment_error_deg: float | None = None
         force_lines = [-1, -1, -1, -1]
         renderer = p.ER_BULLET_HARDWARE_OPENGL if gui else p.ER_TINY_RENDERER
         impact_speed, stop_at_s = 0.0, None
@@ -129,9 +134,10 @@ class StrikeSimulation:
         def reset_attempt() -> None:
             """Restore the complete flight state and publish Godot's initial pose."""
             nonlocal attempt_number, attempt_video, attempt_plot, attempt_csv, attempt_summary
+            nonlocal config, active_scene, active_target_distance_m
             nonlocal engine, barometer, tracker, guidance, vertical_imu, vertical_estimator
             nonlocal previous_vertical_velocity_mps, attitude_controller, torque, command, baro
-            nonlocal observation, target_visible, vertical_alignment_error_deg, impact_speed, stop_at_s, log, writer, rtf_started, simulated_elapsed_s
+            nonlocal vision, observation, target_visible, impact_speed, stop_at_s, log, writer, rtf_started, simulated_elapsed_s
             if writer:
                 writer.release()
             if interactive and attempt_number:
@@ -153,6 +159,9 @@ class StrikeSimulation:
                         ),
                         attempt_summary,
                     )
+            config = replace(config, runtime=replace(config.runtime, takeoff_altitude_m=pending_takeoff_altitude_m))
+            active_target_distance_m = pending_target_distance_m
+            active_scene = replace(self.scene, target_center=(config.launch_position[0] + active_target_distance_m, self.scene.target_center[1], self.scene.target_center[2]))
             attempt_number += 1
             if interactive and summary:
                 attempt_dir = summary.parent / f"attempt-{attempt_number:03d}"
@@ -165,15 +174,16 @@ class StrikeSimulation:
             p.resetBasePositionAndOrientation(cube, active_scene.target_center, (0, 0, 0, 1))
             p.resetBaseVelocity(cube, (0, 0, 0), (0, 0, 0))
             engine = PhysicsEngine(model, settings)
-            barometer, tracker, guidance = Barometer(config), BboxTtcTracker(config), StrikeGuidance(config)
+            barometer, vision, guidance = Barometer(config), VisualGuidanceEstimator(config), StrikeGuidance(config, 4 * model.max_thrust_per_motor_n)
+            tracker = vision.tracker
             vertical_imu = VerticalImu(config)
             vertical_estimator = VerticalEstimator(config, config.launch_position[2])
             previous_vertical_velocity_mps = 0.0
-            attitude_controller = AttitudeController(config.pitch_attitude_pid_gains)
+            attitude_controller = AttitudeController(config.pitch_attitude_pid_gains, config.roll_attitude_pid_gains)
             torque = (0.0, 0.0, 0.0)
             command = GuidanceCommand(FlightPhase.TAKEOFF, config.hover_thrust_n, 0.0, None)
             baro = BarometerReading(config.launch_position[2], 0.0)
-            observation, target_visible, vertical_alignment_error_deg = None, False, None
+            observation, target_visible = None, False
             impact_speed, stop_at_s = 0.0, None
             rtf_started = None
             simulated_elapsed_s = 0.0
@@ -185,7 +195,7 @@ class StrikeSimulation:
                 self.godot.clear_collision_events()
                 self.godot.clear_control_events()
                 target_position, target_orientation = p.getBasePositionAndOrientation(cube)
-                self.godot.publish_pose(config.launch_position, (0, 0, 0, 1), target_position, target_orientation, reset=True, overlay={"bbox": None, "rtf": current_rtf(), "running_time_s": running_time_seconds()}, target_control={"distance_m": active_target_distance_m})
+                self.godot.publish_pose(config.launch_position, (0, 0, 0, 1), target_position, target_orientation, reset=True, overlay={"bbox": None, "rtf": current_rtf(), "running_time_s": running_time_seconds()}, target_control={"distance_m": active_target_distance_m, "takeoff_altitude_m": config.takeoff_altitude_m})
 
         reset_attempt()
 
@@ -217,7 +227,7 @@ class StrikeSimulation:
 
         def poll_control() -> None:
             """Apply the newest Godot toolbar command to the local state."""
-            nonlocal rtf_started, active_scene, active_target_distance_m
+            nonlocal rtf_started, pending_target_distance_m, pending_takeoff_altitude_m
             if not controls or not self.godot:
                 return
             event = self.godot.read_control_event()
@@ -231,8 +241,13 @@ class StrikeSimulation:
                 except (TypeError, ValueError):
                     selected = None
                 if selected in TARGET_DISTANCE_PRESETS_M:
-                    active_target_distance_m = selected
-                    active_scene = replace(self.scene, target_center=(config.launch_position[0] + selected, self.scene.target_center[1], self.scene.target_center[2]))
+                    pending_target_distance_m = selected
+                try:
+                    altitude = float(event.get("takeoff_altitude_m"))
+                except (TypeError, ValueError):
+                    altitude = None
+                if altitude in TAKEOFF_ALTITUDE_PRESETS_M or altitude == self.config.takeoff_altitude_m:
+                    pending_takeoff_altitude_m = altitude
                 controls.request_reset()
             elif action == "start":
                 if not controls.running:
@@ -292,7 +307,11 @@ class StrikeSimulation:
 
                 frame = None
                 if step % (physics_hz // config.camera_hz) == 0:
-                    if self.godot:
+                    vision.heading_rad = guidance.heading_rad if guidance.heading_rad is not None else read_imu(drone).roll_pitch_yaw_rad[2]
+                    if any(start <= now_s < end for start, end in config.camera_dropout_intervals_s):
+                        visual = vision.update(None, now_s, step, read_imu(drone).roll_pitch_yaw_rad, now_s)
+                        observation, target_visible = None, False
+                    elif self.godot:
                         drone_position, drone_orientation = p.getBasePositionAndOrientation(drone)
                         target_position, target_orientation = p.getBasePositionAndOrientation(cube)
                         godot_frame = self.godot.read_frame()
@@ -301,21 +320,23 @@ class StrikeSimulation:
                             frame, box = detect_red_box(godot_frame)
                             if writer:
                                 writer.write(cv2.resize(frame, config.environment_size_px))
-                            target_visible = box is not None
-                            observation = tracker.update(box, now_s)
-                            vertical_alignment_error_deg = bbox_alignment_angles(
-                                box,
-                                config.camera_width_px,
-                                config.camera_height_px,
-                                config.camera_fov_deg,
-                                p.getEulerFromQuaternion(drone_orientation)[1],
-                            )[2]
+                            metadata = self.godot.frame_metadata
+                            if metadata is not None and godot_frame.shape[:2] == (config.camera_height_px, config.camera_width_px):
+                                captured_at, frame_id, attitude = metadata
+                                visual = vision.update(box, captured_at, frame_id, attitude, now_s)
+                                observation = visual.observation if visual else None
+                                target_visible = bool(visual and visual.bearing_valid)
                         trajectory = command.trajectory
                         self.godot.publish_pose(
                             drone_position,
                             drone_orientation,
                             target_position,
                             target_orientation,
+                            captured_at_s=now_s,
+                            attitude_rad=read_imu(drone).roll_pitch_yaw_rad,
+                            camera={"width": config.camera_width_px, "height": config.camera_height_px,
+                                    "horizontal_fov_deg": config.camera_fov_deg, "look_down_deg": config.camera_look_down_deg,
+                                    "hz": config.camera_hz},
                             overlay={
                                 "bbox": list(box) if box else None,
                                 "phase": command.phase.value,
@@ -343,35 +364,19 @@ class StrikeSimulation:
                                 fov_deg=config.camera_fov_deg,
                             )
                         )
-                        target_visible = box is not None
-                        observation = tracker.update(box, now_s)
-                        vertical_alignment_error_deg = bbox_alignment_angles(
-                            box,
-                            config.camera_width_px,
-                            config.camera_height_px,
-                            config.camera_fov_deg,
-                            p.getEulerFromQuaternion(p.getBasePositionAndOrientation(drone)[1])[1],
-                        )[2]
+                        attitude = read_imu(drone).roll_pitch_yaw_rad
+                        visual = vision.update(box, now_s, step, attitude, now_s)
+                        observation = visual.observation if visual else None
+                        target_visible = bool(visual and visual.bearing_valid)
 
                 if step % control_steps == 0:
                     if stop_at_s is None:
-                        current_velocity = p.getBaseVelocity(drone)[0]
-                        measured_pitch = p.getEulerFromQuaternion(p.getBasePositionAndOrientation(drone)[1])[1]
-                        command = guidance.update(GuidanceInput(
-                            now_s,
-                            baro,
-                            observation,
-                            tracker.last_observation,
-                            target_visible,
-                            tracker.commit_ready,
-                            current_velocity[0],
-                            measured_pitch,
-                            vertical_alignment_error_deg,
-                        ))
+                        attitude = read_imu(drone).roll_pitch_yaw_rad
+                        command = guidance.update(GuidanceInput(now_s, baro, vision.estimate, attitude))
                         if command.reset_ttc:
                             # This flag belongs to the takeoff-to-track handoff:
                             # ignore bbox scale accumulated during vertical climb.
-                            tracker.reset()
+                            vision.reset()
                             observation = None
                         if command.commit_expired:
                             # The held terminal command exceeded its predicted
@@ -390,7 +395,7 @@ class StrikeSimulation:
                                 False,
                                 command.phase.value,
                                 now_s,
-                                f"target lost before commit (last bbox height {last_height:g} px)",
+                                f"{command.reason} (last bbox height {last_height:g} px)",
                             )
                             if result is not None:
                                 return result
@@ -399,7 +404,7 @@ class StrikeSimulation:
                         # pitch_target_rad is a high-level attitude request.
                         # The attitude controller compares it with the IMU attitude and
                         # returns the body torque needed by the motor mixer.
-                        torque = attitude_controller.update(read_imu(drone), yaw_target=0.0, pitch_target=command.pitch_target_rad)
+                        torque = attitude_controller.update(read_imu(drone), yaw_target=command.yaw_target_rad, roll_target=command.roll_target_rad, pitch_target=command.pitch_target_rad, dt=time_step * control_steps)
                     else:
                         # Post-impact: do not keep steering or accelerating.
                         torque = (0.0, 0.0, 0.0)
@@ -423,7 +428,8 @@ class StrikeSimulation:
                 if stop_at_s is None:
                     # Record the collision sample, then freeze telemetry while
                     # passive post-impact physics continues for the video.
-                    log.append(now_s, position, velocity, command, pitch_rad, pitch_torque, observation, flight_step, baro, config.camera_width_px, config.camera_height_px, config.camera_fov_deg)
+                    logged_observation = observation if vision.estimate and 0 <= now_s - vision.estimate.captured_at_s <= config.frame_max_age_s else None
+                    log.append(now_s, position, velocity, command, pitch_rad, pitch_torque, logged_observation, flight_step, baro, config.camera_width_px, config.camera_height_px, config.camera_fov_deg)
 
                 collision_kind = self.godot.read_collision_event() if self.godot else ("target" if p.getContactPoints(drone, cube) else None)
                 if stop_at_s is None and collision_kind == "target":
@@ -435,6 +441,12 @@ class StrikeSimulation:
                         send_plot_message(plot_sender, {"type": "collision", "time_s": now_s})
                 elif stop_at_s is None and collision_kind == "obstacle":
                     result = finish_attempt(False, command.phase.value, now_s, "Godot obstacle collision")
+                    if result is not None:
+                        return result
+                    step = 0
+                    continue
+                elif stop_at_s is None and self.godot is None and command.phase != FlightPhase.TAKEOFF and any(contact[2] != cube for contact in p.getContactPoints(drone)):
+                    result = finish_attempt(False, command.phase.value, now_s, "Ground collision")
                     if result is not None:
                         return result
                     step = 0

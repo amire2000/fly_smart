@@ -1,5 +1,10 @@
 # Image-to-control method flow
 
+The current DY-first controller, confidence gates and PD/PI state machine are
+explained in [Trajectory algorithm](trajectory_algo.md). The controller
+walkthrough below records the earlier implementation for historical comparison.
+
+
 This diagram shows one control cycle from an incoming camera image to motor
 outputs. The camera runs at its configured frame rate; guidance and physics run
 at their own control rates using the latest available visual observation.

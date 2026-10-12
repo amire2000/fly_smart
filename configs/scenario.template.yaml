@@ -67,8 +67,8 @@ runtime:
   mission:
     takeoff_altitude_m: 15.0              # Altitude that must settle before visual tracking starts [m].
     impact_altitude_m: 1.0                # Desired altitude at target contact [m].
-    forward_speed_mps: 13.0               # Desired body-forward tracking velocity [m/s].
-    nominal_pitch_deg: 20.0               # Initial forward-pitch teaching value [degrees].
+    forward_speed_mps: 13.0               # Legacy compatibility setting; inactive in DY/TTC guidance.
+    nominal_pitch_deg: 20.0               # Legacy compatibility setting; inactive in DY/TTC guidance.
   takeoff:
     takeoff_max_climb_velocity_mps: 7.2       # Measured guard: 30 Hz sampling limits physical climb speed to about 8 m/s.
   flight_limits:
@@ -77,16 +77,16 @@ runtime:
     max_pitch_deg: 20.0                   # Maximum requested pitch [deg].
     takeoff_altitude_tolerance_m: 0.2     # Takeoff altitude-ready band [m].
     takeoff_velocity_tolerance_mps: 0.5   # Takeoff stability band [m/s].
-    commit_timeout_margin_s: 5.0          # Extra commit deadline after the last valid TTC [s].
+    commit_timeout_margin_s: 5.0          # Legacy compatibility setting; inactive in DY/TTC guidance.
   ttc:
-    commit_box_height_fraction: 0.1       # Image-height fraction that permits commit after target loss.
+    commit_box_height_fraction: 0.1       # Legacy compatibility setting; inactive in DY/TTC guidance.
     min_ttc_s: 0.2                        # Minimum accepted TTC [s].
     alpha: 0.85                           # Trust in the latest bbox-scale measurement [0..1].
-    beta: 0.05                            # Trust in bbox-scale-rate correction [0..1].
+    beta: 0.20                            # Trust in bbox-scale-rate correction [0..1].
     min_growth_px_per_s: 0.01             # Minimum accepted approach growth [px/s].
-    ttc_unavailable_descent_velocity_mps: 1.5  # Initial descent magnitude before TTC is valid; zero disables it.
-    ttc_unavailable_descent_slope_m_per_m: 0.50 # Pre-TTC vertical drop per metre of forward travel.
-    ttc_unavailable_pitch_boost_deg: 5.0  # Extra pitch while bbox is visible but TTC is invalid; zero disables it.
+    ttc_unavailable_descent_velocity_mps: 1.5  # Legacy compatibility setting; inactive in DY/TTC guidance.
+    ttc_unavailable_descent_slope_m_per_m: 0.50 # Legacy compatibility setting; inactive in DY/TTC guidance.
+    ttc_unavailable_pitch_boost_deg: 5.0  # Legacy compatibility setting; inactive in DY/TTC guidance.
     ttc_activation_s: 8.0                 # Trust TTC for final descent only below this value [s].
     camera_dy_gain_mps_per_deg: 0.20      # Vertical-speed correction per compensated camera degree.
     camera_dy_deadband_deg: 1.0           # Ignore small compensated vertical alignment errors [deg].
@@ -101,10 +101,37 @@ runtime:
     forward_speed:
       gains: [0.03, 0.0, 0.002]           # [kp, ki, kd]: forward-speed error to pitch target.
       integral_limit: 0.2                 # Forward-speed integral clamp.
+    roll_attitude:
+      gains: [0.02, 0.0, 0.01]
     pitch_attitude:
       gains: [0.008, 0.0, 0.006]          # [kp, ki, kd]: pitch error to motor torque.
     vertical_velocity:
-      gains: [1.0, 0.0, 0.0]              # [kp, ki, kd]: descent-rate error to collective thrust.
+      gains: [1.0, 0.4, 0.0]              # [kp, ki, kd]: descent-rate error to collective thrust.
   vertical_control:
     vertical_position_correction: 0.8     # Position error to vertical-velocity correction.
     max_vertical_position_correction_mps: 2.0  # Bound position-error contribution [m/s].
+  guidance:
+    approach_pitch_deg: 7.0
+    approach_pitch_slew_deg_s: 5.0
+    camera_dy_rate_gain: 0.02
+    bearing_filter_time_s: 0.15
+    lateral_pd_gains: [0.8, 0.0, 4.0]
+    max_roll_deg: 15.0
+    roll_slew_deg_s: 15.0
+    frame_max_age_s: 0.1
+    bearing_dwell_s: 0.1
+    acquire_timeout_s: 5.0
+    recovery_grace_s: 0.2
+    recovery_timeout_s: 1.0
+    ttc_window_s: 0.5
+    ttc_min_samples: 8
+    ttc_fit_max_relative_rms: 0.15
+    ttc_dwell_s: 0.3
+    ttc_blend_s: 0.5
+    ttc_exit_s: 10.0
+    vertical_slew_mps2: 1.0
+    braking_delay_s: 0.2
+    terminal_altitude_tolerance_m: 0.2
+    terminal_bearing_tolerance_deg: 2.0
+    blind_commit_max_s: 0.3
+    vertical_velocity_integral_limit: 5.0

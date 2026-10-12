@@ -1,5 +1,10 @@
+"""Interactive controls and live-telemetry adapter checks."""
+
 import json
 import socket
+
+import pybullet as p
+import pytest
 
 from fly_smart.simulation.gui_helper import SimulationControls
 from fly_smart.simulation.godot_bridge import GodotBridge
@@ -38,15 +43,16 @@ def test_godot_pose_packet_carries_overlay_payload():
         receiver.close()
 
 
-def test_godot_control_event_preserves_target_distance():
+@pytest.mark.parametrize("altitude", [20, 30, 50])
+def test_godot_control_event_preserves_reset_selections(altitude):
     bridge = GodotBridge(event_port=0, control_port=0)
     sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sender.sendto(
-            json.dumps({"event": "simulation_control", "action": "reset", "target_distance_m": 60}).encode(),
+            json.dumps({"event": "simulation_control", "action": "reset", "target_distance_m": 150, "takeoff_altitude_m": altitude}).encode(),
             ("127.0.0.1", bridge._control_socket.getsockname()[1]),
         )
-        assert bridge.read_control_event() == {"action": "reset", "target_distance_m": 60}
+        assert bridge.read_control_event() == {"action": "reset", "target_distance_m": 150, "takeoff_altitude_m": altitude}
     finally:
         sender.close()
         bridge.close()
@@ -92,8 +98,13 @@ def test_plot_sample_round_trip_populates_child_log():
         source.measured_pitch_deg, source.ttc_s, source.raw_ttc_s, source.bbox_scale_px,
         source.bbox_growth_px_s, source.raw_bbox_growth_px_s,
         source.barometer_raw_altitude_m, source.barometer_filtered_altitude_m,
+        source.frame_age_s, source.ttc_weight, source.bearing_alpha_deg, source.bearing_beta_deg,
+        source.command_roll_deg, source.requested_vz_mps,
     ):
         values.append(1.0)
+    source.visual_reason.append("ttc_qualified")
+    source.guidance_reason.append("ttc_qualified")
+    source.thrust_saturated.append(False)
     sample = latest_sample(source)
     assert sample is not None
     child = FlightLog()
@@ -102,3 +113,61 @@ def test_plot_sample_round_trip_populates_child_log():
     assert child.phase == ["track"]
     assert child.x_m == [2.0]
     assert child.bbox_scale_px == [1.0]
+
+
+@pytest.mark.parametrize("altitude,expected", [(20, 20), (30, 30), (50, 50), (None, 15), (99, 15), ("bad", 15), (float("nan"), 15), (float("inf"), 15)])
+def test_runner_reset_applies_altitude_and_preserves_previous_attempt(monkeypatch, tmp_path, altitude, expected):
+    from fly_smart.simulation import runner
+    from fly_smart.simulation.config import StrikeConfig
+
+    class ResetBridge:
+        """Deliver resets while recording the runner's authoritative settings."""
+
+        def __init__(self):
+            self.events = iter([{"action": "reset", "target_distance_m": 150, "takeoff_altitude_m": altitude},
+                                {"action": "reset", "takeoff_altitude_m": 15}, {"action": "stop"}])
+            self.applied = []
+
+        def open(self):
+            pass
+
+        def clear_collision_events(self):
+            pass
+
+        def clear_control_events(self):
+            pass
+
+        def read_control_event(self):
+            return next(self.events)
+
+        def publish_pose(self, *args, **kwargs):
+            self.applied.append(kwargs["target_control"])
+
+        def close(self):
+            pass
+
+    heights = []
+    guidance_type = runner.StrikeGuidance
+
+    def record_guidance(config, max_thrust):
+        heights.append(config.takeoff_altitude_m)
+        return guidance_type(config, max_thrust)
+
+    monkeypatch.setattr(runner, "StrikeGuidance", record_guidance)
+    monkeypatch.setattr(runner, "start_plot_process", lambda *args: None)
+    bridge = ResetBridge()
+    client = p.connect(p.DIRECT)
+    try:
+        runner.StrikeSimulation(StrikeConfig(), godot=bridge).run(False, 1, None, None,
+            summary=tmp_path / "summary.json", interactive=True)
+    finally:
+        p.disconnect(client)
+    assert heights == [15, 15, expected, 15]
+    assert bridge.applied == [{"distance_m": 30, "takeoff_altitude_m": 15},
+                              {"distance_m": 150, "takeoff_altitude_m": expected},
+                              {"distance_m": 150, "takeoff_altitude_m": 15}]
+    previous = json.loads((tmp_path / "attempt-001/summary.json").read_text())
+    assert previous["takeoff_altitude_m"] == 15
+    assert previous["target"]["center_m"][0] == 24.75
+    selected = json.loads((tmp_path / "attempt-002/summary.json").read_text())
+    assert selected["takeoff_altitude_m"] == expected

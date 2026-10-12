@@ -116,6 +116,16 @@ def latest_sample(log: FlightLog) -> dict[str, object] | None:
     index = -1
     return {
         "type": "telemetry_sample",
+        "frame_age_s": log.frame_age_s[index],
+        "visual_reason": log.visual_reason[index],
+        "ttc_weight": log.ttc_weight[index],
+        "guidance_reason": log.guidance_reason[index],
+        "thrust_saturated": log.thrust_saturated[index],
+        "bearing_alpha_deg": log.bearing_alpha_deg[index],
+        "bearing_beta_deg": log.bearing_beta_deg[index],
+        "command_roll_deg": log.command_roll_deg[index],
+        "requested_vz_mps": log.requested_vz_mps[index],
+
         "t": log.time_s[index],
         "phase": log.phase[index],
         "x": log.x_m[index],

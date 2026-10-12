@@ -1,7 +1,7 @@
 """Show the RGB image from a forward-facing camera on the hovering drone."""
 
 import argparse
-from math import radians, tan
+from math import atan, cos, degrees, radians, sin, tan
 from pathlib import Path
 import time
 
@@ -59,11 +59,15 @@ def forward_rgb(
     """Render a body camera, optionally with a stabilized optical axis."""
     position, orientation = p.getBasePositionAndOrientation(drone)
     eye, _ = p.multiplyTransforms(position, orientation, (mount_forward_m, 0.0, 0.03), (0, 0, 0, 1))
-    target, _ = p.multiplyTransforms(position, orientation, (20.0, 0.0, 0.03 - 20.0 * tan(radians(look_down_degrees))), (0, 0, 0, 1))
-    up_point, _ = p.multiplyTransforms(position, orientation, (0.0, 0.0, 1.0), (0, 0, 0, 1))
-    up = tuple(axis - origin for axis, origin in zip(up_point, eye))
+    mount = radians(look_down_degrees)
+    local_direction = (cos(mount), 0.0, -sin(mount))
+    local_up = (sin(mount), 0.0, cos(mount))
+    direction_point, _ = p.multiplyTransforms((0, 0, 0), orientation, local_direction, (0, 0, 0, 1))
+    up, _ = p.multiplyTransforms((0, 0, 0), orientation, local_up, (0, 0, 0, 1))
+    target = tuple(e + d for e, d in zip(eye, direction_point))
     view = p.computeViewMatrix(eye, world_target or target, (0, 0, 1) if world_target else up)
-    projection = p.computeProjectionMatrixFOV(fov=fov_deg, aspect=width_px / height_px, nearVal=0.05, farVal=50.0)
+    vertical_fov = degrees(2 * atan(tan(radians(fov_deg) / 2) * height_px / width_px))
+    projection = p.computeProjectionMatrixFOV(fov=vertical_fov, aspect=width_px / height_px, nearVal=0.05, farVal=500.0)
     _, _, rgba, _, _ = p.getCameraImage(width_px, height_px, view, projection, renderer=renderer)
     return np.reshape(rgba, (height_px, width_px, 4))[:, :, :3]
 

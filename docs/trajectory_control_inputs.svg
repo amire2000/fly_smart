@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="1260" viewBox="0 0 1320 1260" role="img" aria-labelledby="title description">
+  <title id="title">When bearing and TTC control act, and how dx and dy influence the implemented trajectory</title>
+  <desc id="description">Implemented simulation controller. Horizontal bearing from image dx and IMU drives roll. Fresh compensated vertical bearing from dy drives bounded smooth descent even when TTC is unreliable. Confident TTC and altitude supply a descent candidate blended with DY, followed by a shared slew limiter and vertical-speed feedback. TTC loss returns smoothly to DY; it does not automatically pause descent. Loss of usable bearing triggers grace, recovery and abort. The control lanes and sensor-to-command diagram distinguish direct control from dashed eligibility checks. Intermediate distances and heights are schematic.</desc>
+  <defs>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; fill: #172b40; }
+      .title { font-size: 30px; font-weight: 700; }
+      .heading { font-size: 23px; font-weight: 700; }
+      .label { font-size: 18px; }
+      .small { font-size: 16px; fill: #46586c; }
+      .bold { font-size: 18px; font-weight: 700; }
+      .grid { stroke: #dde5ee; stroke-width: 1; fill: none; }
+      .axis { stroke: #8392a3; stroke-width: 1.5; fill: none; }
+      .direct { stroke: #42627e; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .gate { stroke: #986215; stroke-width: 2; stroke-dasharray: 6 5; fill: none; marker-end: url(#gate-arrow); }
+      .node { fill: #f6f9fc; stroke: #ccd8e5; stroke-width: 1; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#42627e"/></marker>
+    <marker id="gate-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#986215"/></marker>
+  </defs>
+  <rect width="1320" height="1260" fill="#ffffff"/>
+  <text x="42" y="51" class="title">Bearing + TTC: when they act, and where dx / dy go</text>
+  <text x="42" y="84" class="label">Implemented controller · bearing stays active during TTC descent · no simulator velocity or range inputs</text>
+  <text x="42" y="112" class="small">Side-view schematic, not measured data. Transition locations are not fixed distances.</text>
+
+  <text x="42" y="153" class="heading">1. Trajectory and control lanes</text>
+  <text x="276" y="186" class="bold">Bearing descent</text>
+  <text x="673" y="186" class="bold">TTC-refined descent</text>
+  <text x="1115" y="186" class="bold">Terminal</text>
+  <path d="M 260 214 V 384 H 1265" class="axis" marker-end="url(#arrow)"/>
+  <text x="204" y="231" class="label">15 m</text>
+  <text x="216" y="362" class="label">1 m</text>
+  <path d="M 260 225 H 1255 M 260 356 H 1255" class="grid"/>
+  <path d="M 280 225 C 380 225 460 249 565 270" stroke="#1469b8" stroke-width="5" fill="none"/>
+  <path d="M 565 270 C 680 292 771 307 945 331 S 1072 345 1125 350" stroke="#147c59" stroke-width="5" fill="none"/>
+  <path d="M 1125 350 Q 1145 356 1165 356 H 1234" stroke="#7854ad" stroke-width="5" fill="none"/>
+  <rect x="1214" y="339" width="34" height="34" rx="2" fill="#c6283d"/>
+  <circle cx="1231" cy="356" r="4" fill="#ffffff"/>
+  <text x="1171" y="319" class="small">Red target</text>
+  <path d="M 565 202 V 602 M 1125 202 V 602" class="axis" stroke-dasharray="4 6"/>
+  <text x="583" y="213" class="small">TTC trusted ≤ 8 s for 0.3 s</text>
+  <text x="671" y="410" class="small">Forward travel → starting distance 50–100 m</text>
+
+  <text x="42" y="456" class="bold">dx → bearing / roll</text>
+  <rect x="275" y="432" width="976" height="36" rx="4" fill="#e7f1fb"/>
+  <path d="M 287 450 H 1238" stroke="#1469b8" stroke-width="4" fill="none"/>
+  <text x="360" y="445" class="small">ACTIVE whenever fresh target bearing is available — before and during TTC descent</text>
+
+  <text x="42" y="504" class="bold">dy → descent baseline</text>
+  <rect x="275" y="480" width="976" height="36" rx="4" fill="#e8f5ed"/>
+  <path d="M 287 498 H 1238" stroke="#147c59" stroke-width="4" fill="none"/>
+  <text x="360" y="493" class="small">ACTIVE baseline with fresh bearing — also the fallback when TTC becomes unreliable</text>
+
+  <text x="42" y="552" class="bold">TTC → descent speed</text>
+  <rect x="275" y="528" width="290" height="36" rx="4" fill="#edf1f5"/>
+  <rect x="565" y="528" width="560" height="36" fill="#e8f5ed"/>
+  <rect x="1125" y="528" width="126" height="36" rx="4" fill="#f0eafa"/>
+  <text x="309" y="551" class="small">OFF: DY controls descent</text>
+  <text x="665" y="551" class="small">Confident TTC smoothly refines DY descent</text>
+  <text x="1143" y="551" class="small">Gated hold*</text>
+
+  <text x="42" y="598" class="bold">Vertical command</text>
+  <text x="300" y="598" class="label">Bounded DY descent</text>
+  <text x="669" y="598" class="label">Blend DY / TTC, then slew-limit</text>
+  <text x="1129" y="598" class="label">Ease to level</text>
+  <text x="275" y="632" class="small">*Without vision: at most 0.3 s, only from fresh confident TTC, stable bearing and good alignment.</text>
+
+  <path d="M 42 653 H 1278" class="grid"/>
+  <text x="42" y="694" class="heading">2. Image errors → compensated bearing → commands or gates</text>
+
+  <rect x="58" y="732" width="332" height="224" fill="#ffffff" stroke="#8392a3" stroke-width="1.5"/>
+  <text x="76" y="759" class="bold">Camera image</text>
+  <path d="M 224 775 V 937 M 77 830 H 371" class="axis" stroke-dasharray="3 4"/>
+  <circle cx="224" cy="830" r="4" fill="#46586c"/>
+  <rect x="282" y="860" width="46" height="40" fill="#fce8eb" stroke="#c6283d" stroke-width="2"/>
+  <circle cx="305" cy="880" r="4" fill="#c6283d"/>
+  <path d="M 224 812 H 305" stroke="#1469b8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <text x="256" y="802" class="bold">dx</text>
+  <path d="M 345 830 V 880" stroke="#986215" stroke-width="2" fill="none" marker-end="url(#gate-arrow)"/>
+  <text x="352" y="858" class="bold">dy</text>
+  <path d="M 305 812 V 860 M 305 880 H 345" class="axis" stroke-dasharray="3 4"/>
+  <text x="76" y="928" class="small">dx: right + · dy: down +</text>
+  <text x="58" y="987" class="label">dx = bbox centre x − image centre x</text>
+  <text x="58" y="1015" class="label">dy = bbox centre y − image centre y</text>
+  <text x="58" y="1053" class="small">Raw pixels are not world-frame errors.</text>
+  <text x="58" y="1078" class="small">Compensate roll, pitch and yaw,</text>
+  <text x="58" y="1103" class="small">camera intrinsics and mounting.</text>
+
+  <path d="M 390 784 H 415 V 765 H 448" class="direct"/>
+  <rect x="450" y="731" width="376" height="74" rx="5" class="node"/>
+  <text x="466" y="758" class="bold">Calibrated ray + IMU attitude</text>
+  <text x="466" y="785" class="label">Horizontal bearing + filtered rate</text>
+  <path d="M 826 768 H 896" class="direct"/>
+  <rect x="898" y="731" width="374" height="74" rx="5" class="node"/>
+  <text x="914" y="758" class="bold">Bearing PD → roll target</text>
+  <text x="914" y="785" class="label">Keep initial yaw; bound roll requests</text>
+
+  <path d="M 637 805 V 837" class="direct"/>
+  <rect x="450" y="840" width="376" height="88" rx="5" class="node"/>
+  <text x="466" y="868" class="bold">Vertical bearing from dy + attitude</text>
+  <text x="466" y="894" class="label">Deadband + bearing PD → vz_DY</text>
+  <text x="466" y="917" class="small">Target below horizon → bounded descent</text>
+  <path d="M 826 883 H 896" class="gate"/>
+  <rect x="898" y="840" width="374" height="88" rx="5" class="node"/>
+  <text x="914" y="868" class="bold">Separate bearing and TTC eligibility</text>
+  <text x="914" y="894" class="label">Combine visual quality, freshness,</text>
+  <text x="914" y="917" class="small">TTC failure alone keeps DY descent active</text>
+
+  <rect x="450" y="965" width="376" height="74" rx="5" class="node"/>
+  <text x="466" y="992" class="bold">Bbox width × height across frames</text>
+  <text x="466" y="1019" class="label">Scale / scale growth → filtered TTC</text>
+  <path d="M 826 1002 H 896" class="direct"/>
+  <path d="M 826 906 H 842 V 980 H 896" class="direct"/>
+  <path d="M 858 1002 V 922 H 896" class="gate"/>
+  <path d="M 1085 928 V 962" class="gate"/>
+  <rect x="898" y="965" width="374" height="139" rx="5" class="node"/>
+  <text x="914" y="993" class="bold">Guarded blend → braked / slewed vz</text>
+  <text x="914" y="1021" class="label">Shared vertical-speed PI → thrust</text>
+  <text x="914" y="1049" class="small">Compensate measured roll + pitch</text>
+  <text x="914" y="1076" class="small">Brake to level; check descent feasibility</text>
+
+  <rect x="450" y="1070" width="376" height="74" rx="5" class="node"/>
+  <text x="466" y="1097" class="bold">Barometer + vertical IMU fusion</text>
+  <text x="466" y="1124" class="label">Estimated altitude and vertical speed</text>
+  <path d="M 826 1107 H 861 V 1059 H 896" class="direct"/>
+
+  <path d="M 42 1170 H 1278" class="grid"/>
+  <text x="42" y="1199" class="label">Solid arrows: command calculation. Dashed arrows: checks that permit, pause or end a stage.</text>
+  <text x="42" y="1225" class="small">TTC loss → smooth DY fallback. Bearing loss → ≤ 0.2 s grace, hold/recovery; abort after 1 s without recovery.</text>
+  <text x="42" y="1250" class="small">Simulation implementation. See the design document for measured validation and remaining limits.</text>
+</svg>

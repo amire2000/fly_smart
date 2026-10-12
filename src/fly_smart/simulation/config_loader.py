@@ -90,7 +90,9 @@ def load_yaml_config(path: Path) -> StrikeConfig:
     vehicle = _mapping(simulation_data.get("vehicle_model"), "simulation.vehicle_model")
     sensor_model = _mapping(simulation_data.get("sensor_model"), "simulation.sensor_model")
     display = _mapping(simulation_data.get("display"), "simulation.display")
+    camera_sensor = _mapping(simulation_data.get("camera_sensor"), "simulation.camera_sensor")
     recording = _mapping(simulation_data.get("recording"), "simulation.recording")
+    guidance = _mapping(runtime_data.get("guidance"), "runtime.guidance")
     physical = _mapping(runtime_data.get("physical_setup"), "runtime.physical_setup")
     camera = _mapping(physical.get("camera"), "runtime.physical_setup.camera")
     mission = _mapping(runtime_data.get("mission"), "runtime.mission")
@@ -172,6 +174,22 @@ def load_yaml_config(path: Path) -> StrikeConfig:
     if "enabled" in gyroscopic:
         simulation = replace(simulation, gyroscopic_torque_enabled=_boolean(gyroscopic["enabled"], "simulation.physical_forces.gyroscopic.enabled"))
 
+    unknown = set(camera_sensor) - {"dropout_intervals_s"}
+    if unknown:
+        raise ValueError(f"unknown simulation.camera_sensor setting(s): {', '.join(sorted(unknown))}")
+    intervals = camera_sensor.get("dropout_intervals_s", [])
+    if not isinstance(intervals, list):
+        raise ValueError("camera dropout intervals must be a list")
+    checked_intervals = []
+    for interval in intervals:
+        if not isinstance(interval, (list, tuple)) or len(interval) != 2:
+            raise ValueError("each camera dropout interval needs start and end")
+        start, end = (_non_negative(v, "camera dropout time") for v in interval)
+        if end <= start:
+            raise ValueError("camera dropout end must follow start")
+        checked_intervals.append((start, end))
+    simulation = replace(simulation, camera_dropout_intervals_s=tuple(checked_intervals))
+
     runtime = _merge(runtime, camera, ("camera_width_px", "camera_height_px", "camera_hz", "camera_fov_deg", "camera_look_down_deg"), "runtime.physical_setup.camera")
     runtime = _merge(runtime, mission, ("takeoff_altitude_m", "impact_altitude_m", "forward_speed_mps", "nominal_pitch_deg"), "runtime.mission")
     runtime = _merge(runtime, takeoff, ("takeoff_max_climb_velocity_mps",), "runtime.takeoff")
@@ -233,7 +251,31 @@ def load_yaml_config(path: Path) -> StrikeConfig:
         runtime = replace(runtime, max_vertical_position_correction_mps=_non_negative(vertical["max_vertical_position_correction_mps"], "runtime.vertical_control.max_vertical_position_correction_mps"))
     runtime = _merge(runtime, {name: value for name, value in vertical.items() if name != "max_vertical_position_correction_mps"}, ("vertical_position_correction",), "runtime.vertical_control")
 
-    for name, field_name in (("altitude", "altitude_pid_gains"), ("forward_speed", "forward_speed_pid_gains"), ("pitch_attitude", "pitch_attitude_pid_gains"), ("vertical_velocity", "vertical_velocity_pid_gains")):
+    guidance_names = (
+        "approach_pitch_deg", "approach_pitch_slew_deg_s", "camera_dy_rate_gain",
+        "bearing_filter_time_s", "lateral_pd_gains", "max_roll_deg", "roll_slew_deg_s",
+        "frame_max_age_s", "bearing_dwell_s", "acquire_timeout_s", "recovery_grace_s",
+        "recovery_timeout_s", "ttc_window_s", "ttc_min_samples", "ttc_fit_max_relative_rms",
+        "ttc_dwell_s", "ttc_blend_s", "ttc_exit_s", "vertical_slew_mps2", "braking_delay_s",
+        "terminal_altitude_tolerance_m", "terminal_bearing_tolerance_deg", "blind_commit_max_s",
+        "vertical_velocity_integral_limit",
+    )
+    unknown = set(guidance) - set(guidance_names)
+    if unknown:
+        raise ValueError(f"unknown runtime.guidance setting(s): {', '.join(sorted(unknown))}")
+    checked = {}
+    for name, value in guidance.items():
+        if name == "lateral_pd_gains":
+            checked[name] = _gains(value, f"runtime.guidance.{name}")
+        elif name == "ttc_min_samples":
+            if isinstance(value, bool) or not isinstance(value, int) or value < 2:
+                raise ValueError("runtime.guidance.ttc_min_samples must be an integer >=2")
+            checked[name] = value
+        else:
+            checked[name] = _positive(value, f"runtime.guidance.{name}")
+    runtime = replace(runtime, **checked)
+
+    for name, field_name in (("altitude", "altitude_pid_gains"), ("forward_speed", "forward_speed_pid_gains"), ("pitch_attitude", "pitch_attitude_pid_gains"), ("roll_attitude", "roll_attitude_pid_gains"), ("vertical_velocity", "vertical_velocity_pid_gains")):
         values = _mapping(pid.get(name), f"runtime.pid.{name}")
         if "gains" in values:
             runtime = replace(runtime, **{field_name: _gains(values["gains"], f"runtime.pid.{name}.gains")})

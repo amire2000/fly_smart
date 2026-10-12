@@ -6,8 +6,10 @@ the shared-memory RGB frame, detecting the red target, estimating TTC, and
 running PyBullet guidance. Godot remains a renderer and receives the latest
 overlay values alongside the existing pose packet on UDP `127.0.0.1:9100`.
 
-The `overlay` payload uses source-frame pixel coordinates (`640 × 360`) for the
-bbox. Godot scales those coordinates to the displayed FPV preview. A reset
+The `overlay` payload uses source-frame pixel coordinates (default `640 × 480`) for the
+bbox. Godot scales each axis using the runtime source dimensions and actual
+displayed FPV preview dimensions. See [150 m detection and alignment](150m-target-detection-bbox.md).
+A reset
 packet sends a null bbox and cleared values.
 
 ```json
